@@ -17,6 +17,11 @@ import type {
 	RuntimeWorkspaceStateResponse,
 } from "@/runtime/types";
 
+// Maximum number of streaming messages kept in-memory per task.
+// Full history is always loadable on demand via getTaskChatMessages.
+// Keeping this bounded prevents the O(n) findIndex + React shallow-copy
+// from degrading over a long Cline run.
+const TASK_CHAT_MESSAGES_MAX_PER_TASK = 500;
 const STREAM_RECONNECT_BASE_DELAY_MS = 500;
 const STREAM_RECONNECT_MAX_DELAY_MS = 5_000;
 
@@ -113,24 +118,58 @@ function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | nul
 	};
 }
 
+function areMetaEqual(a: RuntimeTaskChatMessage["meta"], b: RuntimeTaskChatMessage["meta"]): boolean {
+	if (a === b) {
+		return true;
+	}
+	if (!a || !b) {
+		return false;
+	}
+	return (
+		a.toolName === b.toolName &&
+		a.hookEventName === b.hookEventName &&
+		a.toolCallId === b.toolCallId &&
+		a.streamType === b.streamType &&
+		a.messageKind === b.messageKind &&
+		a.displayRole === b.displayRole &&
+		a.reason === b.reason
+	);
+}
+
 function upsertTaskChatMessage(
 	currentMessages: RuntimeTaskChatMessage[],
 	nextMessage: RuntimeTaskChatMessage,
 ): RuntimeTaskChatMessage[] {
-	const existingIndex = currentMessages.findIndex((message) => message.id === nextMessage.id);
-	if (existingIndex < 0) {
-		return [...currentMessages, nextMessage];
+	// Search from the end: streaming updates almost always touch the last message.
+	let existingIndex = -1;
+	for (let i = currentMessages.length - 1; i >= 0; i--) {
+		if (currentMessages[i]?.id === nextMessage.id) {
+			existingIndex = i;
+			break;
+		}
 	}
+
+	if (existingIndex < 0) {
+		// New message: append, then trim to the cap.
+		const appended = [...currentMessages, nextMessage];
+		if (appended.length > TASK_CHAT_MESSAGES_MAX_PER_TASK) {
+			return appended.slice(appended.length - TASK_CHAT_MESSAGES_MAX_PER_TASK);
+		}
+		return appended;
+	}
+
 	const existingMessage = currentMessages[existingIndex];
 	if (
 		existingMessage &&
 		existingMessage.content === nextMessage.content &&
 		existingMessage.role === nextMessage.role &&
 		existingMessage.createdAt === nextMessage.createdAt &&
-		JSON.stringify(existingMessage.meta ?? null) === JSON.stringify(nextMessage.meta ?? null)
+		areMetaEqual(existingMessage.meta, nextMessage.meta)
 	) {
+		// Nothing changed — return the same reference so React skips re-render.
 		return currentMessages;
 	}
+
 	const nextMessages = [...currentMessages];
 	nextMessages[existingIndex] = nextMessage;
 	return nextMessages;
