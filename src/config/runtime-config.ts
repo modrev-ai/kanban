@@ -20,6 +20,9 @@ interface RuntimeGlobalConfigFileShape {
 	llmRetryMaxAttempts?: number;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	llmRetryEnabled?: boolean;
+	llmRetryDelayMs?: number;
+	llmRetryMaxAttempts?: number;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -41,6 +44,9 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
+	llmRetryEnabled: boolean;
+	llmRetryDelayMs: number;
+	llmRetryMaxAttempts: number;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -51,6 +57,9 @@ export interface RuntimeConfigUpdateInput {
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	llmRetryEnabled?: boolean;
+	llmRetryDelayMs?: number;
+	llmRetryMaxAttempts?: number;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -307,6 +316,18 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		llmRetryEnabled: normalizeBoolean(
+			globalConfig?.llmRetryEnabled,
+			DEFAULT_LLM_RETRY_ENABLED,
+		),
+		llmRetryDelayMs: normalizeNumber(
+			globalConfig?.llmRetryDelayMs,
+			DEFAULT_LLM_RETRY_DELAY_MS,
+		),
+		llmRetryMaxAttempts: normalizeNumber(
+			globalConfig?.llmRetryMaxAttempts,
+			DEFAULT_LLM_RETRY_MAX_ATTEMPTS,
+		),
 	};
 }
 
@@ -356,6 +377,18 @@ async function writeRuntimeGlobalConfigFile(
 		config.openPrPromptTemplate === undefined
 			? DEFAULT_OPEN_PR_PROMPT_TEMPLATE
 			: normalizePromptTemplate(config.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE);
+	const llmRetryEnabled =
+		config.llmRetryEnabled === undefined
+			? DEFAULT_LLM_RETRY_ENABLED
+			: normalizeBoolean(config.llmRetryEnabled, DEFAULT_LLM_RETRY_ENABLED);
+	const llmRetryDelayMs =
+		config.llmRetryDelayMs === undefined
+			? DEFAULT_LLM_RETRY_DELAY_MS
+			: normalizeNumber(config.llmRetryDelayMs, DEFAULT_LLM_RETRY_DELAY_MS);
+	const llmRetryMaxAttempts =
+		config.llmRetryMaxAttempts === undefined
+			? DEFAULT_LLM_RETRY_MAX_ATTEMPTS
+			: normalizeNumber(config.llmRetryMaxAttempts, DEFAULT_LLM_RETRY_MAX_ATTEMPTS);
 
 	const payload: RuntimeGlobalConfigFileShape = {};
 	if (selectedAgentId !== undefined) {
@@ -475,6 +508,9 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
+	llmRetryEnabled: boolean;
+	llmRetryDelayMs: number;
+	llmRetryMaxAttempts: number;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -497,6 +533,9 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		llmRetryEnabled: input.llmRetryEnabled,
+		llmRetryDelayMs: input.llmRetryDelayMs,
+		llmRetryMaxAttempts: input.llmRetryMaxAttempts,
 	};
 }
 
