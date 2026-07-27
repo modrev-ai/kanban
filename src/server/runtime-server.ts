@@ -148,7 +148,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	): Promise<ClineTaskSessionService> => {
 		let service = clineTaskSessionServiceByWorkspaceId.get(scope.workspaceId);
 		if (!service) {
-			const runtimeConfig = await deps.workspaceRegistry.loadScopedRuntimeConfig(scope);
+			const runtimeConfig = deps.workspaceRegistry.getActiveRuntimeConfig();
 			service = createInMemoryClineTaskSessionService({
 				watcherRegistry: clineWatcherRegistry,
 				runtimeConfig: {
@@ -291,7 +291,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			const requestUrl = new URL(req.url ?? "/", "http://localhost");
 			const pathname = normalizeRequestPath(requestUrl.pathname);
 
-			// ── Passcode gate (remote mode only) ──────────────────────────────
+			// Passcode gate (remote mode only)
 			const passcodeActive = isRemoteMode && isPasscodeEnabled();
 			if (pathname === "/api/passcode/status") {
 				if (passcodeActive) {
@@ -388,12 +388,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						res.end(JSON.stringify({ error: "Authentication required." }));
 						return;
 					}
-					// Fall through — let the normal asset/index.html serving below handle it.
+					// Fall through - let the normal asset/index.html serving below handle it.
 					// PasscodeGateProvider in main.tsx will render the gate before any
 					// authenticated API calls are made.
 				}
 			}
-			// ── End passcode gate ──────────────────────────────────────────────
+			// End passcode gate
 
 			const oauthCallbackResponse = await handleClineMcpOauthCallback(requestUrl);
 			if (oauthCallbackResponse) {
@@ -443,7 +443,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		if (normalizeRequestPath(requestUrl.pathname) !== "/api/runtime/ws") {
 			return;
 		}
-		// ── Passcode gate for WebSocket upgrades (remote mode only) ──────────
+		// Passcode gate for WebSocket upgrades (remote mode only)
 		const passcodeActive = isRemoteMode && isPasscodeEnabled();
 		if (passcodeActive) {
 			const sessionToken = extractSessionTokenFromCookie(request.headers.cookie);
@@ -456,7 +456,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				return;
 			}
 		}
-		// ── End passcode gate ─────────────────────────────────────────────────
+		// End passcode gate
 		(request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled = true;
 		const requestedWorkspaceId = requestUrl.searchParams.get("workspaceId")?.trim() || null;
 		deps.runtimeStateHub.handleUpgrade(request, socket, head, { requestedWorkspaceId });

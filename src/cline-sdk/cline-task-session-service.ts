@@ -101,35 +101,18 @@ export interface ClineTaskSessionService {
 	dispose(): Promise<void>;
 }
 
-export interface CreateInMemoryClineTaskSessionServiceOptions {
-	createSessionRuntime?: (options: CreateInMemoryClineSessionRuntimeOptions) => ClineSessionRuntime;
-	createMessageRepository?: () => ClineMessageRepository;
-	createRuntimeSetup?: (workspacePath: string) => Promise<ClineRuntimeSetup>;
-	watcherRegistry?: ClineWatcherRegistry;
-	runtimeConfig?: {
-		llmRetryEnabled: boolean;
-		llmRetryDelayMs: number;
-		llmRetryMaxAttempts: number;
-	};
-}
-
-function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) {
-		const message = error.message.trim();
-		if (message.length > 0) {
-			return message;
-		}
-	}
-	return "Unknown error";
-}
-function isWorkerLimitError(error: unknown): boolean {
-	const message = toErrorMessage(error);
-	return (
-		message.includes("Worker local total request limit reached") ||
+	return message.includes("Worker local total request limit reached") ||
 		message.includes("ResourceExhausted") ||
 		message.includes("rate limit") ||
-		message.includes("quota")
-	);
+		message.includes("quota");
+>>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+}
+=======
+	return message.includes("Worker local total request limit reached") ||
+		message.includes("ResourceExhausted") ||
+		message.includes("rate limit") ||
+		message.includes("quota");
+>>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
 }
 
 function readAgentResultText(result: unknown): string | null {
@@ -179,7 +162,15 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 	private readonly sessionRuntime: ClineSessionRuntime;
 	private readonly messageRepository: ClineMessageRepository;
 	private readonly watcherRegistry: ClineWatcherRegistry;
-	private readonly runtimeConfig: {
+private readonly runtimeConfig: {
+>>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+		llmRetryEnabled: boolean;
+		llmRetryDelayMs: number;
+		llmRetryMaxAttempts: number;
+	} | null;
+=======
+private readonly runtimeConfig: {
+>>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
 		llmRetryEnabled: boolean;
 		llmRetryDelayMs: number;
 		llmRetryMaxAttempts: number;
@@ -202,6 +193,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		this.messageRepository = createMessageRepository();
 		this.runtimeConfig = options.runtimeConfig ?? null;
 	}
+this.runtimeConfig = options.runtimeConfig ?? null;
 
 	onSummary(listener: (summary: RuntimeTaskSessionSummary) => void): () => void {
 		return this.messageRepository.onSummary(listener);
@@ -662,66 +654,144 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					}
 				})
 
-				.catch(async (error: unknown) => {
-					// Check if we should retry due to worker limit / rate limit errors
-					if (this.runtimeConfig?.llmRetryEnabled && isWorkerLimitError(error)) {
-						const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
-						const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
 
-						for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-							// Wait before retrying
-							await new Promise((resolve) => setTimeout(resolve, delayMs));
+.catch(async (error: unknown) => {
+			// Check if we should retry due to worker limit / rate limit errors
+			if (
+				this.runtimeConfig?.llmRetryEnabled &&
+				isWorkerLimitError(error)
+			) {
+				const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
+				const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
 
-							try {
-								// Retry the dispatch
-								const recovered = await this.dispatchResolvedTaskInput({
-									taskId,
-									prompt: resolvedPrompt,
-									mode: effectiveMode,
-									images,
-									delivery: queueDelivery ? "queue" : undefined,
-								});
+				for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+					// Wait before retrying
+					await new Promise((resolve) => setTimeout(resolve, delayMs));
 
-								if (recovered) {
-									// Success on retry - emit summary and return
-									const warningMessage = formatStartWarnings(recovered.warnings);
-									if (warningMessage) {
-										this.emitSummary(
-											updateSummary(entry, {
-												warningMessage,
-											}),
-										);
-									}
-									const agentText = readAgentResultText(recovered.result);
-									if (agentText) {
-										const agentMessage =
-											setOrCreateAssistantMessage(entry, taskId, agentText) ??
-											createAssistantMessage(entry, taskId, agentText);
-										this.emitMessage(taskId, agentMessage);
-									}
-									return;
-								}
-							} catch (retryError) {
-								// Check if this is also a worker limit error
-								if (!isWorkerLimitError(retryError)) {
-									// Different error, don't retry further
-									this.emitTaskFailure(taskId, entry, "send", retryError);
-									return;
-								}
-								// If this was the last attempt, emit failure
-								if (attempt === maxAttempts) {
-									this.emitTaskFailure(taskId, entry, "send", retryError);
-									return;
-								}
+					try {
+						// Retry the dispatch
+						const recovered = await this.dispatchResolvedTaskInput({
+							taskId,
+							prompt: resolvedPrompt,
+							mode: effectiveMode,
+							images,
+							delivery: queueDelivery ? "queue" : undefined,
+						});
+
+						if (recovered) {
+							// Success on retry - emit summary and return
+							const warningMessage = formatStartWarnings(recovered.warnings);
+							if (warningMessage) {
+								this.emitSummary(
+									updateSummary(entry, {
+										warningMessage,
+									}),
+								);
 							}
+							const agentText = readAgentResultText(recovered.result);
+							if (agentText) {
+								const agentMessage =
+									setOrCreateAssistantMessage(entry, taskId, agentText) ??
+									createAssistantMessage(entry, taskId, agentText);
+								this.emitMessage(taskId, agentMessage);
+							}
+							return;
 						}
-						// If we exhausted all retries
-						this.emitTaskFailure(taskId, entry, "send", error);
-						return;
+					} catch (retryError) {
+						// Check if this is also a worker limit error
+						if (!isWorkerLimitError(retryError)) {
+							// Different error, don't retry further
+							this.emitTaskFailure(taskId, entry, "send", retryError);
+							return;
+						}
+						// If this was the last attempt, emit failure
+						if (attempt === maxAttempts) {
+							this.emitTaskFailure(taskId, entry, "send", retryError);
+							return;
+						}
+						// Continue to next retry attempt
+						continue;
 					}
+				}
+				// If we exhausted all retries
+				this.emitTaskFailure(taskId, entry, "send", error);
+				return;
+			}
 
-					// Not a retryable error or retry disabled
-					this.emitTaskFailure(taskId, entry, "send", error);
+			// Not a retryable error or retry disabled
+			this.emitTaskFailure(taskId, entry, "send", error);
+		});
+>>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+				});
+=======
+
+.catch(async (error: unknown) => {
+			// Check if we should retry due to worker limit / rate limit errors
+			if (
+				this.runtimeConfig?.llmRetryEnabled &&
+				isWorkerLimitError(error)
+			) {
+				const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
+				const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
+
+				for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+					// Wait before retrying
+					await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+					try {
+						// Retry the dispatch
+						const recovered = await this.dispatchResolvedTaskInput({
+							taskId,
+							prompt: resolvedPrompt,
+							mode: effectiveMode,
+							images,
+							delivery: queueDelivery ? "queue" : undefined,
+						});
+
+						if (recovered) {
+							// Success on retry - emit summary and return
+							const warningMessage = formatStartWarnings(recovered.warnings);
+							if (warningMessage) {
+								this.emitSummary(
+									updateSummary(entry, {
+										warningMessage,
+									}),
+								);
+							}
+							const agentText = readAgentResultText(recovered.result);
+							if (agentText) {
+								const agentMessage =
+									setOrCreateAssistantMessage(entry, taskId, agentText) ??
+									createAssistantMessage(entry, taskId, agentText);
+								this.emitMessage(taskId, agentMessage);
+							}
+							return;
+						}
+					} catch (retryError) {
+						// Check if this is also a worker limit error
+						if (!isWorkerLimitError(retryError)) {
+							// Different error, don't retry further
+							this.emitTaskFailure(taskId, entry, "send", retryError);
+							return;
+						}
+						// If this was the last attempt, emit failure
+						if (attempt === maxAttempts) {
+							this.emitTaskFailure(taskId, entry, "send", retryError);
+							return;
+						}
+						// Continue to next retry attempt
+						continue;
+					}
+				}
+				// If we exhausted all retries
+				this.emitTaskFailure(taskId, entry, "send", error);
+				return;
+			}
+
+			// Not a retryable error or retry disabled
+			this.emitTaskFailure(taskId, entry, "send", error);
+		});
+>>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
 				});
 		}
 		const summary = updateSummary(entry, {
