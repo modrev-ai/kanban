@@ -101,18 +101,35 @@ export interface ClineTaskSessionService {
 	dispose(): Promise<void>;
 }
 
-	return message.includes("Worker local total request limit reached") ||
-		message.includes("ResourceExhausted") ||
-		message.includes("rate limit") ||
-		message.includes("quota");
->>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+export interface CreateInMemoryClineTaskSessionServiceOptions {
+	createSessionRuntime?: (options: CreateInMemoryClineSessionRuntimeOptions) => ClineSessionRuntime;
+	createMessageRepository?: () => ClineMessageRepository;
+	createRuntimeSetup?: (workspacePath: string) => Promise<ClineRuntimeSetup>;
+	watcherRegistry?: ClineWatcherRegistry;
+	runtimeConfig?: {
+		llmRetryEnabled: boolean;
+		llmRetryDelayMs: number;
+		llmRetryMaxAttempts: number;
+	};
 }
-=======
-	return message.includes("Worker local total request limit reached") ||
+
+function toErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		const message = error.message.trim();
+		if (message.length > 0) {
+			return message;
+		}
+	}
+	return "Unknown error";
+}
+function isWorkerLimitError(error: unknown): boolean {
+	const message = toErrorMessage(error);
+	return (
+		message.includes("Worker local total request limit reached") ||
 		message.includes("ResourceExhausted") ||
 		message.includes("rate limit") ||
-		message.includes("quota");
->>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+		message.includes("quota")
+	);
 }
 
 function readAgentResultText(result: unknown): string | null {
@@ -162,15 +179,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 	private readonly sessionRuntime: ClineSessionRuntime;
 	private readonly messageRepository: ClineMessageRepository;
 	private readonly watcherRegistry: ClineWatcherRegistry;
-private readonly runtimeConfig: {
->>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
-		llmRetryEnabled: boolean;
-		llmRetryDelayMs: number;
-		llmRetryMaxAttempts: number;
-	} | null;
-=======
-private readonly runtimeConfig: {
->>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+	private readonly runtimeConfig: {
 		llmRetryEnabled: boolean;
 		llmRetryDelayMs: number;
 		llmRetryMaxAttempts: number;
@@ -193,7 +202,6 @@ private readonly runtimeConfig: {
 		this.messageRepository = createMessageRepository();
 		this.runtimeConfig = options.runtimeConfig ?? null;
 	}
-this.runtimeConfig = options.runtimeConfig ?? null;
 
 	onSummary(listener: (summary: RuntimeTaskSessionSummary) => void): () => void {
 		return this.messageRepository.onSummary(listener);
@@ -440,7 +448,7 @@ this.runtimeConfig = options.runtimeConfig ?? null;
 					apiKey: request.apiKey,
 					baseUrl: request.baseUrl,
 					reasoningEffort: request.reasoningEffort,
-					systemPrompt,
+					SystemPrompt,
 					userInstructionService: runtimeSetup.userInstructionService,
 					requestToolApproval: runtimeSetup.requestToolApproval,
 				});
@@ -654,144 +662,71 @@ this.runtimeConfig = options.runtimeConfig ?? null;
 					}
 				})
 
+				.catch(async (error: unknown) => {
+					// Check if we should retry due to worker limit / rate limit errors
+					if (
+						this.runtimeConfig?.llmRetryEnabled &&
+						isWorkerLimitError(error)
+					) {
+						const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
+						const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
 
-.catch(async (error: unknown) => {
-			// Check if we should retry due to worker limit / rate limit errors
-			if (
-				this.runtimeConfig?.llmRetryEnabled &&
-				isWorkerLimitError(error)
-			) {
-				const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
-				const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
+						for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+							// Wait before retrying
+							await new Promise((resolve) => setTimeout(resolve, delayMs));
 
-				for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-					// Wait before retrying
-					await new Promise((resolve) => setTimeout(resolve, delayMs));
+							try {
+								// Retry the dispatch
+								const recovered = await this.dispatchResolvedTaskInput({
+									taskId,
+									prompt: resolvedPrompt,
+									mode: effectiveMode,
+									images,
+									delivery: queueDelivery ? "queue" : undefined,
+								});
 
-					try {
-						// Retry the dispatch
-						const recovered = await this.dispatchResolvedTaskInput({
-							taskId,
-							prompt: resolvedPrompt,
-							mode: effectiveMode,
-							images,
-							delivery: queueDelivery ? "queue" : undefined,
-						});
-
-						if (recovered) {
-							// Success on retry - emit summary and return
-							const warningMessage = formatStartWarnings(recovered.warnings);
-							if (warningMessage) {
-								this.emitSummary(
-									updateSummary(entry, {
-										warningMessage,
-									}),
-								);
+								if (recovered) {
+									// Success on retry - emit summary and return
+									const warningMessage = formatStartWarnings(recovered.warnings);
+									if (warningMessage) {
+										this.emitSummary(
+											updateSummary(entry, {
+												warningMessage,
+											}),
+										);
+									}
+									const agentText = readAgentResultText(recovered.result);
+									if (agentText) {
+										const agentMessage =
+											setOrCreateAssistantMessage(entry, taskId, agentText) ??
+											createAssistantMessage(entry, taskId, agentText);
+										this.emitMessage(taskId, agentMessage);
+									}
+									return;
+								}
+							} catch (retryError) {
+								// Check if this is also a worker limit error
+								if (!isWorkerLimitError(retryError)) {
+									// Different error, don't retry further
+									this.emitTaskFailure(taskId, entry, "send", retryError);
+									return;
+								}
+								// If this was the last attempt, emit failure
+								if (attempt === maxAttempts) {
+									this.emitTaskFailure(taskId, entry, "send", retryError);
+									return;
+								}
+								// Continue to next retry attempt
+								continue;
 							}
-							const agentText = readAgentResultText(recovered.result);
-							if (agentText) {
-								const agentMessage =
-									setOrCreateAssistantMessage(entry, taskId, agentText) ??
-									createAssistantMessage(entry, taskId, agentText);
-								this.emitMessage(taskId, agentMessage);
-							}
-							return;
 						}
-					} catch (retryError) {
-						// Check if this is also a worker limit error
-						if (!isWorkerLimitError(retryError)) {
-							// Different error, don't retry further
-							this.emitTaskFailure(taskId, entry, "send", retryError);
-							return;
-						}
-						// If this was the last attempt, emit failure
-						if (attempt === maxAttempts) {
-							this.emitTaskFailure(taskId, entry, "send", retryError);
-							return;
-						}
-						// Continue to next retry attempt
-						continue;
+						// If we exhausted all retries
+						this.emitTaskFailure(taskId, entry, "send", error);
+						return;
 					}
-				}
-				// If we exhausted all retries
-				this.emitTaskFailure(taskId, entry, "send", error);
-				return;
-			}
 
-			// Not a retryable error or retry disabled
-			this.emitTaskFailure(taskId, entry, "send", error);
-		});
->>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
-				});
-=======
-
-.catch(async (error: unknown) => {
-			// Check if we should retry due to worker limit / rate limit errors
-			if (
-				this.runtimeConfig?.llmRetryEnabled &&
-				isWorkerLimitError(error)
-			) {
-				const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
-				const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
-
-				for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-					// Wait before retrying
-					await new Promise((resolve) => setTimeout(resolve, delayMs));
-
-					try {
-						// Retry the dispatch
-						const recovered = await this.dispatchResolvedTaskInput({
-							taskId,
-							prompt: resolvedPrompt,
-							mode: effectiveMode,
-							images,
-							delivery: queueDelivery ? "queue" : undefined,
-						});
-
-						if (recovered) {
-							// Success on retry - emit summary and return
-							const warningMessage = formatStartWarnings(recovered.warnings);
-							if (warningMessage) {
-								this.emitSummary(
-									updateSummary(entry, {
-										warningMessage,
-									}),
-								);
-							}
-							const agentText = readAgentResultText(recovered.result);
-							if (agentText) {
-								const agentMessage =
-									setOrCreateAssistantMessage(entry, taskId, agentText) ??
-									createAssistantMessage(entry, taskId, agentText);
-								this.emitMessage(taskId, agentMessage);
-							}
-							return;
-						}
-					} catch (retryError) {
-						// Check if this is also a worker limit error
-						if (!isWorkerLimitError(retryError)) {
-							// Different error, don't retry further
-							this.emitTaskFailure(taskId, entry, "send", retryError);
-							return;
-						}
-						// If this was the last attempt, emit failure
-						if (attempt === maxAttempts) {
-							this.emitTaskFailure(taskId, entry, "send", retryError);
-							return;
-						}
-						// Continue to next retry attempt
-						continue;
-					}
-				}
-				// If we exhausted all retries
-				this.emitTaskFailure(taskId, entry, "send", error);
-				return;
-			}
-
-			// Not a retryable error or retry disabled
-			this.emitTaskFailure(taskId, entry, "send", error);
-		});
->>>>>>> adc178a (feat(cline-sdk): add automatic retry for worker limit errors)
+					// Not a retryable error or retry disabled
+					this.emitTaskFailure(taskId, entry, "send", error);
 				});
 		}
 		const summary = updateSummary(entry, {
@@ -968,90 +903,28 @@ this.runtimeConfig = options.runtimeConfig ?? null;
 		this.messageRepository.emitMessage(taskId, message);
 	}
 
-	private shouldCaptureReviewCheckpoint(
-		previousSummary: RuntimeTaskSessionSummary,
-		nextSummary: RuntimeTaskSessionSummary | null,
-	): nextSummary is RuntimeTaskSessionSummary {
-		if (!nextSummary) {
-			return false;
-		}
-		if (isHomeAgentSessionId(nextSummary.taskId) || !nextSummary.workspacePath) {
-			return false;
-		}
-		return previousSummary.state !== "awaiting_review" && nextSummary.state === "awaiting_review";
-	}
-
-	private captureReviewCheckpoint(taskId: string, summary: RuntimeTaskSessionSummary): void {
-		const nextTurn = (summary.latestTurnCheckpoint?.turn ?? 0) + 1;
-		const staleRef = summary.previousTurnCheckpoint?.ref ?? null;
-		void captureTaskTurnCheckpoint({
-			cwd: summary.workspacePath ?? ".",
-			taskId,
-			turn: nextTurn,
-		})
-			.then((checkpoint) => {
-				this.applyTurnCheckpoint(taskId, checkpoint);
-				if (!staleRef) {
-					return;
-				}
-				void deleteTaskTurnCheckpointRef({
-					cwd: summary.workspacePath ?? ".",
-					ref: staleRef,
-				}).catch(() => {
-					// Best effort cleanup only.
-				});
-			})
-			.catch(() => {
-				// Best effort checkpointing only.
-			});
-	}
-
-	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
-		const normalizedWorkspacePath = workspacePath.trim();
-		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(normalizedWorkspacePath);
-		if (!leasePromise) {
-			leasePromise = this.watcherRegistry.acquire(normalizedWorkspacePath);
-			this.runtimeSetupLeaseByWorkspacePath.set(normalizedWorkspacePath, leasePromise);
-		}
-		const lease = await leasePromise;
-		return lease.setup;
-	}
-
 	private handleTaskEvent(taskId: string, event: unknown): void {
 		const entry = this.messageRepository.getTaskEntry(taskId);
 		if (!entry) {
 			return;
 		}
-		const previousSummary = cloneSummary(entry.summary);
-		let latestSummary: RuntimeTaskSessionSummary | null = null;
-		applyClineSessionEvent({
-			event,
-			taskId,
-			entry,
-			pendingTurnCancelTaskIds: this.pendingTurnCancelTaskIds,
-			isClineProvider: this.isClineProviderForTask(taskId),
-			emitSummary: (summary: RuntimeTaskSessionSummary) => {
-				latestSummary = summary;
-				this.emitSummary(summary);
-			},
-			emitMessage: (taskIdFromEvent: string, message: ClineTaskMessage) => {
-				this.emitMessage(taskIdFromEvent, message);
-			},
+		applyClineSessionEvent(entry, taskId, event, {
+			emitSummary: (summary) => this.emitSummary(summary),
+			emitMessage: (message) => this.emitMessage(taskId, message),
+			now,
 		});
-		const shouldAbortForCreditLimit =
-			entry.summary.latestHookActivity?.notificationType === "credit_limit" &&
-			previousSummary?.latestHookActivity?.notificationType !== "credit_limit";
-		if (this.shouldCaptureReviewCheckpoint(previousSummary, latestSummary)) {
-			this.captureReviewCheckpoint(taskId, latestSummary);
-		}
-		if (shouldAbortForCreditLimit) {
-			void this.sessionRuntime.abortTaskSession(taskId).catch(() => undefined);
-		}
 	}
-}
 
-export function createInMemoryClineTaskSessionService(
-	options: CreateInMemoryClineTaskSessionServiceOptions = {},
-): ClineTaskSessionService {
-	return new InMemoryClineTaskSessionService(options);
+	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
+		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(workspacePath);
+		if (!leasePromise) {
+			leasePromise = (async () => {
+				const setup = await createClineRuntimeSetup(workspacePath);
+				return setup.acquireLease();
+			})();
+			this.runtimeSetupLeaseByWorkspacePath.set(workspacePath, leasePromise);
+		}
+		const lease = await leasePromise;
+		return lease.setup;
+	}
 }
