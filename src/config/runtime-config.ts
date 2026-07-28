@@ -15,6 +15,9 @@ interface RuntimeGlobalConfigFileShape {
 	selectedShortcutLabel?: string;
 	agentAutonomousModeEnabled?: boolean;
 	readyForReviewNotificationsEnabled?: boolean;
+	llmRetryEnabled?: boolean;
+	llmRetryDelayMs?: number;
+	llmRetryMaxAttempts?: number;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
 }
@@ -30,6 +33,9 @@ export interface RuntimeConfigState {
 	selectedShortcutLabel: string | null;
 	agentAutonomousModeEnabled: boolean;
 	readyForReviewNotificationsEnabled: boolean;
+	llmRetryEnabled: boolean;
+	llmRetryDelayMs: number;
+	llmRetryMaxAttempts: number;
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
@@ -57,6 +63,9 @@ const DEFAULT_AGENT_ID: RuntimeAgentId = "cline";
 const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex", "droid", "kiro"];
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
+const DEFAULT_LLM_RETRY_ENABLED = true;
+const DEFAULT_LLM_RETRY_DELAY_MS = 15000;
+const DEFAULT_LLM_RETRY_MAX_ATTEMPTS = 20;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
 
 - Do not run destructive commands: git reset --hard, git clean -fdx, git worktree remove, rm/mv on repository paths.
@@ -283,6 +292,13 @@ function toRuntimeConfigState({
 			globalConfig?.readyForReviewNotificationsEnabled,
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
+		llmRetryEnabled: normalizeBoolean(globalConfig?.llmRetryEnabled, DEFAULT_LLM_RETRY_ENABLED),
+		llmRetryDelayMs:
+			typeof globalConfig?.llmRetryDelayMs === "number" ? globalConfig.llmRetryDelayMs : DEFAULT_LLM_RETRY_DELAY_MS,
+		llmRetryMaxAttempts:
+			typeof globalConfig?.llmRetryMaxAttempts === "number"
+				? globalConfig.llmRetryMaxAttempts
+				: DEFAULT_LLM_RETRY_MAX_ATTEMPTS,
 		shortcuts: normalizeShortcuts(projectConfig?.shortcuts),
 		commitPromptTemplate: normalizePromptTemplate(globalConfig?.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
 		openPrPromptTemplate: normalizePromptTemplate(
@@ -453,6 +469,9 @@ function createRuntimeConfigStateFromValues(input: {
 	selectedShortcutLabel: string | null;
 	agentAutonomousModeEnabled: boolean;
 	readyForReviewNotificationsEnabled: boolean;
+	llmRetryEnabled?: boolean;
+	llmRetryDelayMs?: number;
+	llmRetryMaxAttempts?: number;
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
@@ -470,6 +489,9 @@ function createRuntimeConfigStateFromValues(input: {
 			input.readyForReviewNotificationsEnabled,
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
+		llmRetryEnabled: input.llmRetryEnabled ?? DEFAULT_LLM_RETRY_ENABLED,
+		llmRetryDelayMs: input.llmRetryDelayMs ?? DEFAULT_LLM_RETRY_DELAY_MS,
+		llmRetryMaxAttempts: input.llmRetryMaxAttempts ?? DEFAULT_LLM_RETRY_MAX_ATTEMPTS,
 		shortcuts: normalizeShortcuts(input.shortcuts),
 		commitPromptTemplate: normalizePromptTemplate(input.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),

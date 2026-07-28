@@ -65,7 +65,7 @@ function writeFakeCommand(binDir: string, command: string): void {
 	chmodSync(scriptPath, 0o755);
 }
 
-describe.sequential("runtime-config auto agent selection", () => {
+describe("runtime-config auto agent selection", () => {
 	it("selects agents using the configured priority order", () => {
 		expect(pickBestInstalledAgentIdFromDetected(["codex", "opencode", "gemini"])).toBe("codex");
 		expect(pickBestInstalledAgentIdFromDetected(["opencode", "droid", "gemini"])).toBe("droid");

@@ -148,8 +148,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	): Promise<ClineTaskSessionService> => {
 		let service = clineTaskSessionServiceByWorkspaceId.get(scope.workspaceId);
 		if (!service) {
+			const runtimeConfig = await deps.workspaceRegistry.loadScopedRuntimeConfig(scope);
 			service = createInMemoryClineTaskSessionService({
 				watcherRegistry: clineWatcherRegistry,
+				runtimeConfig: {
+					llmRetryEnabled: runtimeConfig.llmRetryEnabled,
+					llmRetryDelayMs: runtimeConfig.llmRetryDelayMs,
+					llmRetryMaxAttempts: runtimeConfig.llmRetryMaxAttempts,
+				},
 			});
 			clineTaskSessionServiceByWorkspaceId.set(scope.workspaceId, service);
 			deps.runtimeStateHub.trackClineTaskSessionService(scope.workspaceId, scope.workspacePath, service);
