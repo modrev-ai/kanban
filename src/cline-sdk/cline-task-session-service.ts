@@ -448,7 +448,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					apiKey: request.apiKey,
 					baseUrl: request.baseUrl,
 					reasoningEffort: request.reasoningEffort,
-					systemPrompt,
+					SystemPrompt,
 					userInstructionService: runtimeSetup.userInstructionService,
 					requestToolApproval: runtimeSetup.requestToolApproval,
 				});
@@ -664,7 +664,10 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 				.catch(async (error: unknown) => {
 					// Check if we should retry due to worker limit / rate limit errors
-					if (this.runtimeConfig?.llmRetryEnabled && isWorkerLimitError(error)) {
+					if (
+						this.runtimeConfig?.llmRetryEnabled &&
+						isWorkerLimitError(error)
+					) {
 						const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
 						const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
 
@@ -713,6 +716,8 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 									this.emitTaskFailure(taskId, entry, "send", retryError);
 									return;
 								}
+								// Continue to next retry attempt
+								continue;
 							}
 						}
 						// If we exhausted all retries
@@ -898,90 +903,28 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		this.messageRepository.emitMessage(taskId, message);
 	}
 
-	private shouldCaptureReviewCheckpoint(
-		previousSummary: RuntimeTaskSessionSummary,
-		nextSummary: RuntimeTaskSessionSummary | null,
-	): nextSummary is RuntimeTaskSessionSummary {
-		if (!nextSummary) {
-			return false;
-		}
-		if (isHomeAgentSessionId(nextSummary.taskId) || !nextSummary.workspacePath) {
-			return false;
-		}
-		return previousSummary.state !== "awaiting_review" && nextSummary.state === "awaiting_review";
-	}
-
-	private captureReviewCheckpoint(taskId: string, summary: RuntimeTaskSessionSummary): void {
-		const nextTurn = (summary.latestTurnCheckpoint?.turn ?? 0) + 1;
-		const staleRef = summary.previousTurnCheckpoint?.ref ?? null;
-		void captureTaskTurnCheckpoint({
-			cwd: summary.workspacePath ?? ".",
-			taskId,
-			turn: nextTurn,
-		})
-			.then((checkpoint) => {
-				this.applyTurnCheckpoint(taskId, checkpoint);
-				if (!staleRef) {
-					return;
-				}
-				void deleteTaskTurnCheckpointRef({
-					cwd: summary.workspacePath ?? ".",
-					ref: staleRef,
-				}).catch(() => {
-					// Best effort cleanup only.
-				});
-			})
-			.catch(() => {
-				// Best effort checkpointing only.
-			});
-	}
-
-	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
-		const normalizedWorkspacePath = workspacePath.trim();
-		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(normalizedWorkspacePath);
-		if (!leasePromise) {
-			leasePromise = this.watcherRegistry.acquire(normalizedWorkspacePath);
-			this.runtimeSetupLeaseByWorkspacePath.set(normalizedWorkspacePath, leasePromise);
-		}
-		const lease = await leasePromise;
-		return lease.setup;
-	}
-
 	private handleTaskEvent(taskId: string, event: unknown): void {
 		const entry = this.messageRepository.getTaskEntry(taskId);
 		if (!entry) {
 			return;
 		}
-		const previousSummary = cloneSummary(entry.summary);
-		let latestSummary: RuntimeTaskSessionSummary | null = null;
-		applyClineSessionEvent({
-			event,
-			taskId,
-			entry,
-			pendingTurnCancelTaskIds: this.pendingTurnCancelTaskIds,
-			isClineProvider: this.isClineProviderForTask(taskId),
-			emitSummary: (summary: RuntimeTaskSessionSummary) => {
-				latestSummary = summary;
-				this.emitSummary(summary);
-			},
-			emitMessage: (taskIdFromEvent: string, message: ClineTaskMessage) => {
-				this.emitMessage(taskIdFromEvent, message);
-			},
+		applyClineSessionEvent(entry, taskId, event, {
+			emitSummary: (summary) => this.emitSummary(summary),
+			emitMessage: (message) => this.emitMessage(taskId, message),
+			now,
 		});
-		const shouldAbortForCreditLimit =
-			entry.summary.latestHookActivity?.notificationType === "credit_limit" &&
-			previousSummary?.latestHookActivity?.notificationType !== "credit_limit";
-		if (this.shouldCaptureReviewCheckpoint(previousSummary, latestSummary)) {
-			this.captureReviewCheckpoint(taskId, latestSummary);
-		}
-		if (shouldAbortForCreditLimit) {
-			void this.sessionRuntime.abortTaskSession(taskId).catch(() => undefined);
-		}
 	}
-}
 
-export function createInMemoryClineTaskSessionService(
-	options: CreateInMemoryClineTaskSessionServiceOptions = {},
-): ClineTaskSessionService {
-	return new InMemoryClineTaskSessionService(options);
+	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
+		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(workspacePath);
+		if (!leasePromise) {
+			leasePromise = (async () => {
+				const setup = await createClineRuntimeSetup(workspacePath);
+				return setup.acquireLease();
+			})();
+			this.runtimeSetupLeaseByWorkspacePath.set(workspacePath, leasePromise);
+		}
+		const lease = await leasePromise;
+		return lease.setup;
+	}
 }
