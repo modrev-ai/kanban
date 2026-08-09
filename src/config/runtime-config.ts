@@ -8,7 +8,6 @@ import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../c
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
-import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
 
 interface RuntimeGlobalConfigFileShape {
 	selectedAgentId?: RuntimeAgentId;
@@ -20,9 +19,6 @@ interface RuntimeGlobalConfigFileShape {
 	llmRetryMaxAttempts?: number;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
-	llmRetryEnabled?: boolean;
-	llmRetryDelayMs?: number;
-	llmRetryMaxAttempts?: number;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -44,9 +40,6 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
-	llmRetryEnabled: boolean;
-	llmRetryDelayMs: number;
-	llmRetryMaxAttempts: number;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -203,6 +196,13 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 	return fallback;
 }
 
+function normalizeNumber(value: unknown, fallback: number): number {
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return value;
+	}
+	return fallback;
+}
+
 function normalizeShortcutLabel(value: unknown): string | null {
 	if (typeof value !== "string") {
 		return null;
@@ -302,12 +302,8 @@ function toRuntimeConfigState({
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
 		llmRetryEnabled: normalizeBoolean(globalConfig?.llmRetryEnabled, DEFAULT_LLM_RETRY_ENABLED),
-		llmRetryDelayMs:
-			typeof globalConfig?.llmRetryDelayMs === "number" ? globalConfig.llmRetryDelayMs : DEFAULT_LLM_RETRY_DELAY_MS,
-		llmRetryMaxAttempts:
-			typeof globalConfig?.llmRetryMaxAttempts === "number"
-				? globalConfig.llmRetryMaxAttempts
-				: DEFAULT_LLM_RETRY_MAX_ATTEMPTS,
+		llmRetryDelayMs: normalizeNumber(globalConfig?.llmRetryDelayMs, DEFAULT_LLM_RETRY_DELAY_MS),
+		llmRetryMaxAttempts: normalizeNumber(globalConfig?.llmRetryMaxAttempts, DEFAULT_LLM_RETRY_MAX_ATTEMPTS),
 		shortcuts: normalizeShortcuts(projectConfig?.shortcuts),
 		commitPromptTemplate: normalizePromptTemplate(globalConfig?.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
 		openPrPromptTemplate: normalizePromptTemplate(
@@ -316,18 +312,6 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
-		llmRetryEnabled: normalizeBoolean(
-			globalConfig?.llmRetryEnabled,
-			DEFAULT_LLM_RETRY_ENABLED,
-		),
-		llmRetryDelayMs: normalizeNumber(
-			globalConfig?.llmRetryDelayMs,
-			DEFAULT_LLM_RETRY_DELAY_MS,
-		),
-		llmRetryMaxAttempts: normalizeNumber(
-			globalConfig?.llmRetryMaxAttempts,
-			DEFAULT_LLM_RETRY_MAX_ATTEMPTS,
-		),
 	};
 }
 
@@ -349,6 +333,9 @@ async function writeRuntimeGlobalConfigFile(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		llmRetryEnabled?: boolean;
+		llmRetryDelayMs?: number;
+		llmRetryMaxAttempts?: number;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -422,6 +409,15 @@ async function writeRuntimeGlobalConfigFile(
 	}
 	if (hasOwnKey(existing, "openPrPromptTemplate") || openPrPromptTemplate !== DEFAULT_OPEN_PR_PROMPT_TEMPLATE) {
 		payload.openPrPromptTemplate = openPrPromptTemplate;
+	}
+	if (hasOwnKey(existing, "llmRetryEnabled") || llmRetryEnabled !== DEFAULT_LLM_RETRY_ENABLED) {
+		payload.llmRetryEnabled = llmRetryEnabled;
+	}
+	if (hasOwnKey(existing, "llmRetryDelayMs") || llmRetryDelayMs !== DEFAULT_LLM_RETRY_DELAY_MS) {
+		payload.llmRetryDelayMs = llmRetryDelayMs;
+	}
+	if (hasOwnKey(existing, "llmRetryMaxAttempts") || llmRetryMaxAttempts !== DEFAULT_LLM_RETRY_MAX_ATTEMPTS) {
+		payload.llmRetryMaxAttempts = llmRetryMaxAttempts;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -502,15 +498,12 @@ function createRuntimeConfigStateFromValues(input: {
 	selectedShortcutLabel: string | null;
 	agentAutonomousModeEnabled: boolean;
 	readyForReviewNotificationsEnabled: boolean;
-	llmRetryEnabled?: boolean;
-	llmRetryDelayMs?: number;
-	llmRetryMaxAttempts?: number;
-	shortcuts: RuntimeProjectShortcut[];
-	commitPromptTemplate: string;
-	openPrPromptTemplate: string;
 	llmRetryEnabled: boolean;
 	llmRetryDelayMs: number;
 	llmRetryMaxAttempts: number;
+	shortcuts: RuntimeProjectShortcut[];
+	commitPromptTemplate: string;
+	openPrPromptTemplate: string;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -525,17 +518,14 @@ function createRuntimeConfigStateFromValues(input: {
 			input.readyForReviewNotificationsEnabled,
 			DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED,
 		),
-		llmRetryEnabled: input.llmRetryEnabled ?? DEFAULT_LLM_RETRY_ENABLED,
-		llmRetryDelayMs: input.llmRetryDelayMs ?? DEFAULT_LLM_RETRY_DELAY_MS,
-		llmRetryMaxAttempts: input.llmRetryMaxAttempts ?? DEFAULT_LLM_RETRY_MAX_ATTEMPTS,
+		llmRetryEnabled: input.llmRetryEnabled,
+		llmRetryDelayMs: input.llmRetryDelayMs,
+		llmRetryMaxAttempts: input.llmRetryMaxAttempts,
 		shortcuts: normalizeShortcuts(input.shortcuts),
 		commitPromptTemplate: normalizePromptTemplate(input.commitPromptTemplate, DEFAULT_COMMIT_PROMPT_TEMPLATE),
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
-		llmRetryEnabled: input.llmRetryEnabled,
-		llmRetryDelayMs: input.llmRetryDelayMs,
-		llmRetryMaxAttempts: input.llmRetryMaxAttempts,
 	};
 }
 
@@ -547,187 +537,98 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		selectedShortcutLabel: current.selectedShortcutLabel,
 		agentAutonomousModeEnabled: current.agentAutonomousModeEnabled,
 		readyForReviewNotificationsEnabled: current.readyForReviewNotificationsEnabled,
+		llmRetryEnabled: current.llmRetryEnabled,
+		llmRetryDelayMs: current.llmRetryDelayMs,
+		llmRetryMaxAttempts: current.llmRetryMaxAttempts,
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
 	});
 }
 
-export async function loadRuntimeConfig(cwd: string): Promise<RuntimeConfigState> {
-	const configFiles = await readRuntimeConfigFiles(cwd);
-	if (configFiles.globalConfig !== null) {
-		return toRuntimeConfigState(configFiles);
-	}
-	return await lockedFileSystem.withLocks(
-		getRuntimeConfigLockRequests(cwd),
-		async () => await loadRuntimeConfigLocked(cwd),
-	);
-}
-
-export async function loadGlobalRuntimeConfig(): Promise<RuntimeConfigState> {
-	const configFiles = await readRuntimeConfigFiles(null);
-	if (configFiles.globalConfig !== null) {
-		return toRuntimeConfigState(configFiles);
-	}
-	return await lockedFileSystem.withLocks(
-		getRuntimeConfigLockRequests(null),
-		async () => await loadRuntimeConfigLocked(null),
-	);
-}
-
-export async function saveRuntimeConfig(
-	cwd: string,
-	config: {
-		selectedAgentId: RuntimeAgentId;
-		selectedShortcutLabel: string | null;
-		agentAutonomousModeEnabled: boolean;
-		readyForReviewNotificationsEnabled: boolean;
-		shortcuts: RuntimeProjectShortcut[];
-		commitPromptTemplate: string;
-		openPrPromptTemplate: string;
-	},
-): Promise<RuntimeConfigState> {
-	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
-	return await lockedFileSystem.withLocks(getRuntimeConfigLockRequests(cwd), async () => {
-		await writeRuntimeGlobalConfigFile(globalConfigPath, {
-			selectedAgentId: config.selectedAgentId,
-			selectedShortcutLabel: config.selectedShortcutLabel,
-			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
-			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
-			commitPromptTemplate: config.commitPromptTemplate,
-			openPrPromptTemplate: config.openPrPromptTemplate,
-		});
-		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
-		return createRuntimeConfigStateFromValues({
-			globalConfigPath,
-			projectConfigPath,
-			selectedAgentId: config.selectedAgentId,
-			selectedShortcutLabel: config.selectedShortcutLabel,
-			agentAutonomousModeEnabled: config.agentAutonomousModeEnabled,
-			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
-			shortcuts: config.shortcuts,
-			commitPromptTemplate: config.commitPromptTemplate,
-			openPrPromptTemplate: config.openPrPromptTemplate,
-		});
+export function toProjectRuntimeConfigState(current: RuntimeConfigState, cwd: string): RuntimeConfigState {
+	return createRuntimeConfigStateFromValues({
+		globalConfigPath: current.globalConfigPath,
+		projectConfigPath: getRuntimeProjectConfigPath(cwd),
+		selectedAgentId: current.selectedAgentId,
+		selectedShortcutLabel: current.selectedShortcutLabel,
+		agentAutonomousModeEnabled: current.agentAutonomousModeEnabled,
+		readyForReviewNotificationsEnabled: current.readyForReviewNotificationsEnabled,
+		llmRetryEnabled: current.llmRetryEnabled,
+		llmRetryDelayMs: current.llmRetryDelayMs,
+		llmRetryMaxAttempts: current.llmRetryMaxAttempts,
+		shortcuts: current.shortcuts,
+		commitPromptTemplate: current.commitPromptTemplate,
+		openPrPromptTemplate: current.openPrPromptTemplate,
 	});
 }
 
-export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpdateInput): Promise<RuntimeConfigState> {
-	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
-	return await lockedFileSystem.withLocks(getRuntimeConfigLockRequests(cwd), async () => {
-		const current = await loadRuntimeConfigLocked(cwd);
-		if (projectConfigPath === null && normalizeShortcuts(updates.shortcuts).length > 0) {
-			throw new Error("Cannot save project shortcuts without a selected project.");
-		}
-		const nextConfig = {
-			selectedAgentId: updates.selectedAgentId ?? current.selectedAgentId,
-			selectedShortcutLabel:
-				updates.selectedShortcutLabel === undefined ? current.selectedShortcutLabel : updates.selectedShortcutLabel,
-			agentAutonomousModeEnabled: updates.agentAutonomousModeEnabled ?? current.agentAutonomousModeEnabled,
+export async function loadRuntimeConfig(cwd: string | null): Promise<RuntimeConfigState> {
+	const lockRequests = getRuntimeConfigLockRequests(cwd);
+	return lockedFileSystem.withLocks(lockRequests, async () => {
+		return loadRuntimeConfigLocked(cwd);
+	});
+}
+
+export async function updateRuntimeConfig(
+	cwd: string | null,
+	update: RuntimeConfigUpdateInput,
+): Promise<RuntimeConfigState> {
+	const lockRequests = getRuntimeConfigLockRequests(cwd);
+	return lockedFileSystem.withLocks(lockRequests, async () => {
+		const configFiles = await readRuntimeConfigFiles(cwd);
+		const currentState = toRuntimeConfigState(configFiles);
+
+		const newState = createRuntimeConfigStateFromValues({
+			globalConfigPath: currentState.globalConfigPath,
+			projectConfigPath: currentState.projectConfigPath,
+			selectedAgentId: update.selectedAgentId ?? currentState.selectedAgentId,
+			selectedShortcutLabel: update.selectedShortcutLabel ?? currentState.selectedShortcutLabel,
+			agentAutonomousModeEnabled: update.agentAutonomousModeEnabled ?? currentState.agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled:
-				updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
-			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
-			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
-			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
-		};
+				update.readyForReviewNotificationsEnabled ?? currentState.readyForReviewNotificationsEnabled,
+			llmRetryEnabled: update.llmRetryEnabled ?? currentState.llmRetryEnabled,
+			llmRetryDelayMs: update.llmRetryDelayMs ?? currentState.llmRetryDelayMs,
+			llmRetryMaxAttempts: update.llmRetryMaxAttempts ?? currentState.llmRetryMaxAttempts,
+			shortcuts: update.shortcuts ?? currentState.shortcuts,
+			commitPromptTemplate: update.commitPromptTemplate ?? currentState.commitPromptTemplate,
+			openPrPromptTemplate: update.openPrPromptTemplate ?? currentState.openPrPromptTemplate,
+		});
 
-		const hasChanges =
-			nextConfig.selectedAgentId !== current.selectedAgentId ||
-			nextConfig.selectedShortcutLabel !== current.selectedShortcutLabel ||
-			nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
-			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
-			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
-			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
+		await writeRuntimeGlobalConfigFile(currentState.globalConfigPath, {
+			selectedAgentId: newState.selectedAgentId,
+			selectedShortcutLabel: newState.selectedShortcutLabel,
+			agentAutonomousModeEnabled: newState.agentAutonomousModeEnabled,
+			readyForReviewNotificationsEnabled: newState.readyForReviewNotificationsEnabled,
+			commitPromptTemplate: newState.commitPromptTemplate,
+			openPrPromptTemplate: newState.openPrPromptTemplate,
+			llmRetryEnabled: newState.llmRetryEnabled,
+			llmRetryDelayMs: newState.llmRetryDelayMs,
+			llmRetryMaxAttempts: newState.llmRetryMaxAttempts,
+		});
 
-		if (!hasChanges) {
-			return current;
+		if (currentState.projectConfigPath) {
+			await writeRuntimeProjectConfigFile(currentState.projectConfigPath, {
+				shortcuts: newState.shortcuts,
+			});
 		}
 
-		await writeRuntimeGlobalConfigFile(globalConfigPath, {
-			selectedAgentId: nextConfig.selectedAgentId,
-			selectedShortcutLabel: nextConfig.selectedShortcutLabel,
-			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
-			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
-			commitPromptTemplate: nextConfig.commitPromptTemplate,
-			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-		});
-		await writeRuntimeProjectConfigFile(projectConfigPath, {
-			shortcuts: nextConfig.shortcuts,
-		});
-		return createRuntimeConfigStateFromValues({
-			globalConfigPath,
-			projectConfigPath,
-			selectedAgentId: nextConfig.selectedAgentId,
-			selectedShortcutLabel: nextConfig.selectedShortcutLabel,
-			agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
-			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
-			shortcuts: nextConfig.shortcuts,
-			commitPromptTemplate: nextConfig.commitPromptTemplate,
-			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-		});
+		return newState;
 	});
 }
 
-export async function updateGlobalRuntimeConfig(
-	current: RuntimeConfigState,
-	updates: RuntimeConfigUpdateInput,
-): Promise<RuntimeConfigState> {
-	const globalConfigPath = getRuntimeGlobalConfigPath();
-	return await lockedFileSystem.withLocks(
-		[
-			{
-				path: globalConfigPath,
-				type: "file",
-			},
-		],
-		async () => {
-			const nextConfig = {
-				selectedAgentId: updates.selectedAgentId ?? current.selectedAgentId,
-				selectedShortcutLabel:
-					updates.selectedShortcutLabel === undefined
-						? current.selectedShortcutLabel
-						: updates.selectedShortcutLabel,
-				agentAutonomousModeEnabled: updates.agentAutonomousModeEnabled ?? current.agentAutonomousModeEnabled,
-				readyForReviewNotificationsEnabled:
-					updates.readyForReviewNotificationsEnabled ?? current.readyForReviewNotificationsEnabled,
-				shortcuts: current.shortcuts,
-				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
-				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
-			};
-
-			const hasChanges =
-				nextConfig.selectedAgentId !== current.selectedAgentId ||
-				nextConfig.selectedShortcutLabel !== current.selectedShortcutLabel ||
-				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
-				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
-				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate;
-
-			if (!hasChanges) {
-				return current;
+export async function resetRuntimeConfig(cwd: string | null): Promise<void> {
+	const lockRequests = getRuntimeConfigLockRequests(cwd);
+	await lockedFileSystem.withLocks(lockRequests, async () => {
+		const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
+		await rm(globalConfigPath, { force: true });
+		if (projectConfigPath) {
+			await rm(projectConfigPath, { force: true });
+			try {
+				await rm(dirname(projectConfigPath));
+			} catch {
+				// Ignore missing or non-empty project config directories.
 			}
-
-			await writeRuntimeGlobalConfigFile(globalConfigPath, {
-				selectedAgentId: nextConfig.selectedAgentId,
-				selectedShortcutLabel: nextConfig.selectedShortcutLabel,
-				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
-				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
-				commitPromptTemplate: nextConfig.commitPromptTemplate,
-				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-			});
-
-			return createRuntimeConfigStateFromValues({
-				globalConfigPath,
-				projectConfigPath: current.projectConfigPath,
-				selectedAgentId: nextConfig.selectedAgentId,
-				selectedShortcutLabel: nextConfig.selectedShortcutLabel,
-				agentAutonomousModeEnabled: nextConfig.agentAutonomousModeEnabled,
-				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
-				shortcuts: nextConfig.shortcuts,
-				commitPromptTemplate: nextConfig.commitPromptTemplate,
-				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
-			});
-		},
-	);
+		}
+	});
 }

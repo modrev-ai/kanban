@@ -9,7 +9,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { disposeCliTelemetryService } from "./cline-sdk/cline-telemetry-service.js";
 import { registerHooksCommand } from "./commands/hooks";
 import { registerTaskCommand } from "./commands/task";
-import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
+import { loadRuntimeConfig } from "./config/runtime-config";
 import type { RuntimeCommandRunResponse } from "./core/api-contract";
 import { createGitProcessEnv } from "./core/git-process-env";
 import {
@@ -409,7 +409,6 @@ async function startServer(): Promise<{
 	let runtimeStateHub: RuntimeStateHub | undefined;
 	const workspaceRegistry = await createWorkspaceRegistry({
 		cwd: process.cwd(),
-		loadGlobalRuntimeConfig,
 		loadRuntimeConfig,
 		hasGitRepository,
 		pathIsDirectory,
