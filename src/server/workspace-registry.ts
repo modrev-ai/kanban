@@ -24,8 +24,7 @@ export interface WorkspaceRegistryScope {
 
 export interface CreateWorkspaceRegistryDependencies {
 	cwd: string;
-	loadGlobalRuntimeConfig: () => Promise<RuntimeConfigState>;
-	loadRuntimeConfig: (cwd: string) => Promise<RuntimeConfigState>;
+	loadRuntimeConfig: (cwd: string | null) => Promise<RuntimeConfigState>;
 	hasGitRepository: (path: string) => boolean;
 	pathIsDirectory: (path: string) => Promise<boolean>;
 	onTerminalManagerReady?: (workspaceId: string, manager: TerminalSessionManager) => void;
@@ -194,7 +193,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 
 	let activeWorkspaceId: string | null = initialWorkspace?.workspaceId ?? indexedWorkspace?.workspaceId ?? null;
 	let activeWorkspacePath: string | null = initialWorkspace?.repoPath ?? indexedWorkspace?.repoPath ?? null;
-	let globalRuntimeConfig = await deps.loadGlobalRuntimeConfig();
+	let globalRuntimeConfig = await deps.loadRuntimeConfig(null);
 	let activeRuntimeConfig = activeWorkspacePath
 		? await deps.loadRuntimeConfig(activeWorkspacePath)
 		: globalRuntimeConfig;

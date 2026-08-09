@@ -13,7 +13,7 @@ import { createClineProviderService } from "../cline-sdk/cline-provider-service"
 import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
-import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
+import { updateRuntimeConfig } from "../config/runtime-config";
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
@@ -137,7 +137,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						message: "No active runtime config is available.",
 					});
 				}
-				nextRuntimeConfig = await updateGlobalRuntimeConfig(activeRuntimeConfig, parsed);
+				nextRuntimeConfig = await updateRuntimeConfig(null, parsed);
 			}
 			if (workspaceScope && workspaceScope.workspaceId === deps.getActiveWorkspaceId()) {
 				deps.setActiveRuntimeConfig(nextRuntimeConfig);

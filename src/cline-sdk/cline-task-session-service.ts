@@ -11,7 +11,6 @@ import type {
 } from "../core/api-contract";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveHomeAgentAppendSystemPrompt } from "../prompts/append-system-prompt";
-import { captureTaskTurnCheckpoint, deleteTaskTurnCheckpointRef } from "../workspace/turn-checkpoints";
 import {
 	compactPersistedMessagesForContextOverflow,
 	isContextOverflowError,
@@ -448,7 +447,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					apiKey: request.apiKey,
 					baseUrl: request.baseUrl,
 					reasoningEffort: request.reasoningEffort,
-					SystemPrompt,
+					systemPrompt,
 					userInstructionService: runtimeSetup.userInstructionService,
 					requestToolApproval: runtimeSetup.requestToolApproval,
 				});
@@ -664,10 +663,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 				.catch(async (error: unknown) => {
 					// Check if we should retry due to worker limit / rate limit errors
-					if (
-						this.runtimeConfig?.llmRetryEnabled &&
-						isWorkerLimitError(error)
-					) {
+					if (this.runtimeConfig?.llmRetryEnabled && isWorkerLimitError(error)) {
 						const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
 						const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
 
@@ -717,7 +713,6 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 									return;
 								}
 								// Continue to next retry attempt
-								continue;
 							}
 						}
 						// If we exhausted all retries
@@ -908,23 +903,25 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		if (!entry) {
 			return;
 		}
-		applyClineSessionEvent(entry, taskId, event, {
+		applyClineSessionEvent({
+			event,
+			taskId,
+			entry,
+			pendingTurnCancelTaskIds: this.pendingTurnCancelTaskIds,
+			isClineProvider: this.isClineProviderForTask(taskId),
 			emitSummary: (summary) => this.emitSummary(summary),
-			emitMessage: (message) => this.emitMessage(taskId, message),
-			now,
+			emitMessage: (taskId, message) => this.emitMessage(taskId, message),
 		});
 	}
 
 	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
-		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(workspacePath);
-		if (!leasePromise) {
-			leasePromise = (async () => {
-				const setup = await createClineRuntimeSetup(workspacePath);
-				return setup.acquireLease();
-			})();
-			this.runtimeSetupLeaseByWorkspacePath.set(workspacePath, leasePromise);
-		}
-		const lease = await leasePromise;
+		const lease = await this.watcherRegistry.acquire(workspacePath);
 		return lease.setup;
 	}
+}
+
+export function createInMemoryClineTaskSessionService(
+	options: CreateInMemoryClineTaskSessionServiceOptions = {},
+): ClineTaskSessionService {
+	return new InMemoryClineTaskSessionService(options);
 }

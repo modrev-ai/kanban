@@ -4,10 +4,8 @@ import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-	loadGlobalRuntimeConfig,
 	loadRuntimeConfig,
 	pickBestInstalledAgentIdFromDetected,
-	saveRuntimeConfig,
 	updateRuntimeConfig,
 } from "../../../src/config/runtime-config";
 import { createTempDir } from "../../utilities/temp-dir";
@@ -196,7 +194,7 @@ describe("runtime-config auto agent selection", () => {
 
 		try {
 			await withTemporaryEnv({ home: tempHome }, async () => {
-				const state = await loadGlobalRuntimeConfig();
+				const state = await loadRuntimeConfig(null);
 				expect(state.globalConfigPath).toBe(join(tempHome, ".cline", "kanban", "config.json"));
 				expect(state.projectConfigPath).toBeNull();
 				expect(state.shortcuts).toEqual([]);
@@ -286,7 +284,7 @@ describe("runtime-config auto agent selection", () => {
 
 			await withTemporaryEnv({ home: tempHome }, async () => {
 				const current = await loadRuntimeConfig(tempProject);
-				await saveRuntimeConfig(tempProject, {
+				await updateRuntimeConfig(tempProject, {
 					selectedAgentId: "cline",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
@@ -331,7 +329,7 @@ describe("runtime-config auto agent selection", () => {
 
 			await withTemporaryEnv({ home: tempHome }, async () => {
 				const current = await loadRuntimeConfig(tempProject);
-				await saveRuntimeConfig(tempProject, {
+				await updateRuntimeConfig(tempProject, {
 					selectedAgentId: "cline",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
@@ -358,7 +356,7 @@ describe("runtime-config auto agent selection", () => {
 		try {
 			await withTemporaryEnv({ home: tempHome }, async () => {
 				const current = await loadRuntimeConfig(tempProject);
-				await saveRuntimeConfig(tempProject, {
+				await updateRuntimeConfig(tempProject, {
 					selectedAgentId: "cline",
 					selectedShortcutLabel: null,
 					agentAutonomousModeEnabled: true,
