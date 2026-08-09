@@ -105,6 +105,50 @@ export interface UpdateCustomClineProviderInput {
 	capabilities?: SdkCustomProviderCapability[];
 }
 
+const DEFAULT_PROVIDERS_TO_SEED: AddCustomClineProviderInput[] = [
+	{
+		providerId: "openai-compatible",
+		name: "NVIDIA",
+		baseUrl: "https://integrate.api.nvidia.com/v1",
+		apiKey: process.env.NVIDIA_API_KEY?.trim() || null,
+		models: ["nvidia/nemotron-3-ultra-550b-a55b"],
+		defaultModelId: "nvidia/nemotron-3-ultra-550b-a55b",
+	},
+];
+
+async function seedDefaultClineProviders(): Promise<void> {
+	try {
+		const existingProviders = await listSdkProviderCatalog().catch(() => []);
+		const hasExistingLastUsed = getLastUsedSdkProviderSettings() !== null;
+
+		for (const defaultProvider of DEFAULT_PROVIDERS_TO_SEED) {
+			const providerId = defaultProvider.providerId.trim().toLowerCase();
+			if (existingProviders.some((p) => p.id.trim().toLowerCase() === providerId)) {
+				continue;
+			}
+
+			await addSdkCustomProvider({
+				providerId,
+				name: defaultProvider.name,
+				baseUrl: defaultProvider.baseUrl,
+				apiKey: defaultProvider.apiKey ?? null,
+				models: defaultProvider.models,
+				defaultModelId: defaultProvider.defaultModelId ?? null,
+				modelsSourceUrl: null,
+			});
+
+			const existingSettings = getSdkProviderSettings(providerId) ?? { provider: providerId };
+			saveSdkProviderSettings({
+				settings: existingSettings,
+				tokenSource: "manual",
+				setLastUsed: !hasExistingLastUsed,
+			});
+		}
+	} catch {
+		// Seeding is best-effort; do not crash the service if it fails.
+	}
+}
+
 function toErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
 		return error.message;
@@ -460,6 +504,9 @@ async function refreshManagedOauthSettings(
 }
 
 export function createClineProviderService() {
+	// Kick off best-effort default provider seeding in the background.
+	void seedDefaultClineProviders();
+
 	const getProviderSettingsSummary = (): RuntimeClineProviderSettings =>
 		toProviderSettingsSummary(getSelectedProviderSettings());
 
