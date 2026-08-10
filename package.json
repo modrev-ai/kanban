@@ -1,5 +1,5 @@
 {
-  "name": "kanban",
+  "name": "@modrev-ai/kanban",
   "version": "1.0.0-modrev",
   "description": "A kanban foundation for coding agents",
   "publishConfig": {
@@ -13,14 +13,14 @@
     "task-management",
     "typescript"
   ],
-  "homepage": "https://github.com/cline/kanban",
+  "homepage": "https://github.com/modrev-ai/kanban",
   "bugs": {
-    "url": "https://github.com/cline/kanban/issues"
+    "url": "https://github.com/modrev-ai/kanban/issues"
   },
   "author": "Cline",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cline/kanban"
+    "url": "https://github.com/modrev-ai/kanban"
   },
   "type": "module",
   "bin": {
