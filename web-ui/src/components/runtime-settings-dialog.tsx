@@ -882,7 +882,13 @@ export function RuntimeSettingsDialog({
 								</h2>
 							</div>
 							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-								<ModrevSetupSection controller={modrevSettings} controlsDisabled={controlsDisabled} />
+								<ModrevSetupSection
+									controller={modrevSettings}
+									controlsDisabled={controlsDisabled}
+									workspaceId={workspaceId}
+									onError={setSaveError}
+									onSaved={handleClineSetupSaved}
+								/>
 							</div>
 						</>
 					) : null}

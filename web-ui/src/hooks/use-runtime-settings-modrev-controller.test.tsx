@@ -2,8 +2,13 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useRuntimeSettingsModrevController } from "@/hooks/use-runtime-settings-modrev-controller";
-import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeConfigResponse } from "@/runtime/types";
+import { type ModrevModel, useRuntimeSettingsModrevController } from "@/hooks/use-runtime-settings-modrev-controller";
+import type {
+	RuntimeAgentId,
+	RuntimeClineProviderCatalogItem,
+	RuntimeClineProviderSettings,
+	RuntimeConfigResponse,
+} from "@/runtime/types";
 
 const fetchClineProviderCatalogMock = vi.hoisted(() => vi.fn());
 const addClineProviderMock = vi.hoisted(() => vi.fn());
@@ -18,16 +23,19 @@ vi.mock("@/runtime/runtime-config-query", () => ({
 }));
 
 interface HookSnapshot {
-	apiKey: string;
-	baseUrl: string;
-	modelId: string;
-	apiKeyConfigured: boolean;
+	models: ModrevModel[];
+	activeProviderId: string;
+	isLoadingModels: boolean;
+	existingProviderIds: string[];
 	hasUnsavedChanges: boolean;
-	setApiKey: (next: string) => void;
-	setBaseUrl: (next: string) => void;
-	setModelId: (next: string) => void;
+	selectModel: (providerId: string) => Promise<{ ok: boolean; message?: string }>;
+	addModel: (input: Parameters<HookSnapshotControllerAdd>[0]) => Promise<{ ok: boolean; message?: string }>;
+	updateModel: (input: Parameters<HookSnapshotControllerUpdate>[0]) => Promise<{ ok: boolean; message?: string }>;
 	saveModrevSettings: () => Promise<{ ok: boolean; message?: string }>;
 }
+
+type HookSnapshotControllerAdd = ReturnType<typeof useRuntimeSettingsModrevController>["addModel"];
+type HookSnapshotControllerUpdate = ReturnType<typeof useRuntimeSettingsModrevController>["updateModel"];
 
 function requireSnapshot(snapshot: HookSnapshot | null): HookSnapshot {
 	if (!snapshot) {
@@ -37,6 +45,7 @@ function requireSnapshot(snapshot: HookSnapshot | null): HookSnapshot {
 }
 
 async function flushAsyncWork(): Promise<void> {
+	await Promise.resolve();
 	await Promise.resolve();
 	await Promise.resolve();
 }
@@ -61,6 +70,19 @@ function makeConfig(providerSettings: RuntimeClineProviderSettings): RuntimeConf
 	return { clineProviderSettings: providerSettings } as unknown as RuntimeConfigResponse;
 }
 
+function makeCatalogItem(overrides: Partial<RuntimeClineProviderCatalogItem> = {}): RuntimeClineProviderCatalogItem {
+	return {
+		id: "modrev-a",
+		name: "Modrev A",
+		oauthSupported: false,
+		enabled: false,
+		defaultModelId: "model-a",
+		baseUrl: "https://api.modrev.ai/v1",
+		supportsBaseUrl: true,
+		...overrides,
+	};
+}
+
 function HookHarness({
 	config,
 	onSnapshot,
@@ -77,14 +99,14 @@ function HookHarness({
 
 	useEffect(() => {
 		onSnapshot({
-			apiKey: state.apiKey,
-			baseUrl: state.baseUrl,
-			modelId: state.modelId,
-			apiKeyConfigured: state.apiKeyConfigured,
+			models: state.models,
+			activeProviderId: state.activeProviderId,
+			isLoadingModels: state.isLoadingModels,
+			existingProviderIds: state.existingProviderIds,
 			hasUnsavedChanges: state.hasUnsavedChanges,
-			setApiKey: state.setApiKey,
-			setBaseUrl: state.setBaseUrl,
-			setModelId: state.setModelId,
+			selectModel: state.selectModel,
+			addModel: state.addModel,
+			updateModel: state.updateModel,
 			saveModrevSettings: state.saveModrevSettings,
 		});
 	}, [onSnapshot, state]);
@@ -103,9 +125,9 @@ describe("useRuntimeSettingsModrevController", () => {
 		updateClineProviderMock.mockReset();
 		saveClineProviderSettingsMock.mockReset();
 		fetchClineProviderCatalogMock.mockResolvedValue([]);
-		addClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev" }));
-		updateClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev" }));
-		saveClineProviderSettingsMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev" }));
+		addClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
+		updateClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
+		saveClineProviderSettingsMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
 
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
@@ -128,16 +150,14 @@ describe("useRuntimeSettingsModrevController", () => {
 		}
 	});
 
-	it("seeds draft fields from a persisted modrev provider", async () => {
+	it("lists only namespaced modrev models and seeds the active selection", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
-		const config = makeConfig(
-			makeProviderSettings({
-				providerId: "modrev",
-				modelId: "modrev/model-a",
-				baseUrl: "https://api.modrev.ai/v1",
-				apiKeyConfigured: true,
-			}),
-		);
+		fetchClineProviderCatalogMock.mockResolvedValue([
+			makeCatalogItem({ id: "modrev-a", name: "Modrev A" }),
+			makeCatalogItem({ id: "anthropic", name: "Anthropic" }),
+			makeCatalogItem({ id: "modrev", name: "Modrev Legacy" }),
+		]);
+		const config = makeConfig(makeProviderSettings({ providerId: "modrev-a" }));
 
 		await act(async () => {
 			root.render(
@@ -151,13 +171,94 @@ describe("useRuntimeSettingsModrevController", () => {
 			await flushAsyncWork();
 		});
 
-		expect(requireSnapshot(latestSnapshot).baseUrl).toBe("https://api.modrev.ai/v1");
-		expect(requireSnapshot(latestSnapshot).modelId).toBe("modrev/model-a");
-		expect(requireSnapshot(latestSnapshot).apiKeyConfigured).toBe(true);
-		expect(requireSnapshot(latestSnapshot).hasUnsavedChanges).toBe(false);
+		const snapshot = requireSnapshot(latestSnapshot);
+		expect(snapshot.models.map((model) => model.providerId)).toEqual(["modrev-a", "modrev"]);
+		expect(snapshot.activeProviderId).toBe("modrev-a");
+		expect(snapshot.existingProviderIds).toContain("anthropic");
 	});
 
-	it("requires base URL, model ID, and API key before saving", async () => {
+	it("adds a model under the modrev namespace and activates it", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		await act(async () => {
+			root.render(
+				<HookHarness
+					config={makeConfig(makeProviderSettings())}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+			await flushAsyncWork();
+		});
+
+		let result: { ok: boolean; message?: string } = { ok: false };
+		await act(async () => {
+			result = await requireSnapshot(latestSnapshot).addModel({
+				providerId: "gpt-oss",
+				name: "GPT OSS",
+				baseUrl: "https://api.modrev.ai/v1",
+				apiKey: "secret",
+				models: ["gpt-oss-120b"],
+				defaultModelId: "gpt-oss-120b",
+			});
+			await flushAsyncWork();
+		});
+
+		expect(result.ok).toBe(true);
+		expect(addClineProviderMock).toHaveBeenCalledWith("workspace-1", {
+			providerId: "modrev-gpt-oss",
+			name: "GPT OSS",
+			baseUrl: "https://api.modrev.ai/v1",
+			apiKey: "secret",
+			models: ["gpt-oss-120b"],
+			defaultModelId: "gpt-oss-120b",
+		});
+		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
+			providerId: "modrev-gpt-oss",
+			modelId: "gpt-oss-120b",
+			baseUrl: "https://api.modrev.ai/v1",
+			apiKey: "secret",
+		});
+		expect(requireSnapshot(latestSnapshot).activeProviderId).toBe("modrev-gpt-oss");
+	});
+
+	it("selects an existing model as the active provider", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		fetchClineProviderCatalogMock.mockResolvedValue([
+			makeCatalogItem({ id: "modrev-a", name: "Modrev A", defaultModelId: "model-a" }),
+			makeCatalogItem({
+				id: "modrev-b",
+				name: "Modrev B",
+				defaultModelId: "model-b",
+				baseUrl: "https://b.modrev.ai/v1",
+			}),
+		]);
+		await act(async () => {
+			root.render(
+				<HookHarness
+					config={makeConfig(makeProviderSettings({ providerId: "modrev-a" }))}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+			await flushAsyncWork();
+		});
+
+		await act(async () => {
+			await requireSnapshot(latestSnapshot).selectModel("modrev-b");
+			await flushAsyncWork();
+		});
+
+		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
+			providerId: "modrev-b",
+			modelId: "model-b",
+			baseUrl: "https://b.modrev.ai/v1",
+		});
+		expect(requireSnapshot(latestSnapshot).activeProviderId).toBe("modrev-b");
+	});
+
+	it("requires at least one model when saving with Modrev selected", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 		await act(async () => {
 			root.render(
@@ -177,116 +278,5 @@ describe("useRuntimeSettingsModrevController", () => {
 			await flushAsyncWork();
 		});
 		expect(result.ok).toBe(false);
-		expect(addClineProviderMock).not.toHaveBeenCalled();
-		expect(saveClineProviderSettingsMock).not.toHaveBeenCalled();
-	});
-
-	it("registers a new modrev provider and selects it on save", async () => {
-		let latestSnapshot: HookSnapshot | null = null;
-		await act(async () => {
-			root.render(
-				<HookHarness
-					config={makeConfig(makeProviderSettings())}
-					onSnapshot={(snapshot) => {
-						latestSnapshot = snapshot;
-					}}
-				/>,
-			);
-			await flushAsyncWork();
-		});
-
-		await act(async () => {
-			requireSnapshot(latestSnapshot).setApiKey("secret-key");
-			requireSnapshot(latestSnapshot).setBaseUrl("https://api.modrev.ai/v1");
-			requireSnapshot(latestSnapshot).setModelId("modrev/model-a");
-			await flushAsyncWork();
-		});
-
-		expect(requireSnapshot(latestSnapshot).hasUnsavedChanges).toBe(true);
-
-		let result: { ok: boolean; message?: string } = { ok: false };
-		await act(async () => {
-			result = await requireSnapshot(latestSnapshot).saveModrevSettings();
-			await flushAsyncWork();
-		});
-
-		expect(result.ok).toBe(true);
-		expect(addClineProviderMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "modrev",
-			name: "Modrev",
-			baseUrl: "https://api.modrev.ai/v1",
-			apiKey: "secret-key",
-			models: ["modrev/model-a"],
-			defaultModelId: "modrev/model-a",
-			capabilities: ["streaming", "tools"],
-		});
-		expect(updateClineProviderMock).not.toHaveBeenCalled();
-		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "modrev",
-			modelId: "modrev/model-a",
-			baseUrl: "https://api.modrev.ai/v1",
-			apiKey: "secret-key",
-		});
-	});
-
-	it("updates the existing modrev provider without re-sending a saved key", async () => {
-		let latestSnapshot: HookSnapshot | null = null;
-		fetchClineProviderCatalogMock.mockResolvedValue([
-			{
-				id: "modrev",
-				name: "Modrev",
-				oauthSupported: false,
-				enabled: true,
-				defaultModelId: "modrev/model-a",
-				baseUrl: "https://api.modrev.ai/v1",
-				supportsBaseUrl: true,
-			},
-		]);
-		const config = makeConfig(
-			makeProviderSettings({
-				providerId: "modrev",
-				modelId: "modrev/model-a",
-				baseUrl: "https://api.modrev.ai/v1",
-				apiKeyConfigured: true,
-			}),
-		);
-
-		await act(async () => {
-			root.render(
-				<HookHarness
-					config={config}
-					onSnapshot={(snapshot) => {
-						latestSnapshot = snapshot;
-					}}
-				/>,
-			);
-			await flushAsyncWork();
-		});
-
-		await act(async () => {
-			requireSnapshot(latestSnapshot).setModelId("modrev/model-b");
-			await flushAsyncWork();
-		});
-
-		let result: { ok: boolean; message?: string } = { ok: false };
-		await act(async () => {
-			result = await requireSnapshot(latestSnapshot).saveModrevSettings();
-			await flushAsyncWork();
-		});
-
-		expect(result.ok).toBe(true);
-		expect(addClineProviderMock).not.toHaveBeenCalled();
-		expect(updateClineProviderMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "modrev",
-			name: "Modrev",
-			baseUrl: "https://api.modrev.ai/v1",
-			models: ["modrev/model-b"],
-			defaultModelId: "modrev/model-b",
-		});
-		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "modrev",
-			modelId: "modrev/model-b",
-			baseUrl: "https://api.modrev.ai/v1",
-		});
 	});
 });
