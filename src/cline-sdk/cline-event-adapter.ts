@@ -49,6 +49,9 @@ export interface ApplyClineSessionEventInput {
 	isClineProvider: boolean;
 	emitSummary: (summary: RuntimeTaskSessionSummary) => void;
 	emitMessage: (taskId: string, message: ClineTaskMessage) => void;
+	// Invoked when a turn fails in a way that should tear the live session down
+	// (e.g. exhausted credits) rather than leave it running for a follow-up turn.
+	requestSessionAbort?: (taskId: string) => void;
 }
 
 type ClineSdkChunkEvent = Extract<ClineSdkSessionEvent, { type: "chunk" }>;
@@ -247,6 +250,11 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 		const retainedToolActivity = getRetainedClineToolActivity(entry);
 		if (!recoverable) {
 			clearActiveTurnState(entry);
+		}
+		if (creditLimitError) {
+			// Credits are exhausted: the session can't make progress, so tear it
+			// down instead of leaving a dead session bound for the next turn.
+			input.requestSessionAbort?.(taskId);
 		}
 		if (recoverable && errorMessage) {
 			const retryMsg = createMessage(taskId, "system", `Retrying: ${errorMessage}`);

@@ -911,6 +911,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			isClineProvider: this.isClineProviderForTask(taskId),
 			emitSummary: (summary) => this.emitSummary(summary),
 			emitMessage: (taskId, message) => this.emitMessage(taskId, message),
+			requestSessionAbort: (taskId) => {
+				void this.sessionRuntime.abortTaskSession(taskId).catch(() => {});
+			},
 		});
 	}
 

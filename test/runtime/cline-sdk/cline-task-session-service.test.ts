@@ -1365,12 +1365,6 @@ describe("InMemoryClineTaskSessionService", () => {
 			cwd: "/tmp/worktree",
 			prompt: "",
 		});
-		service.applyTurnCheckpoint("task-1", {
-			turn: 1,
-			ref: "refs/kanban/checkpoints/task-1/turn/1",
-			commit: "commit-1",
-			createdAt: 1,
-		});
 
 		const sessionId = await waitForTaskSessionId(runtime, "task-1");
 
@@ -1385,15 +1379,9 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(summary?.reviewReason).toBe("hook");
 		expect(summary?.latestHookActivity?.hookEventName).toBe("agent_end");
 		expect(summary?.latestHookActivity?.finalMessage).toBe("Done. Added the comment.");
-		await vi.waitFor(() => {
-			expect(turnCheckpointMocks.captureTaskTurnCheckpoint).toHaveBeenCalledWith({
-				cwd: "/tmp/worktree",
-				taskId: "task-1",
-				turn: 2,
-			});
-		});
-		expect(service.getSummary("task-1")?.previousTurnCheckpoint?.commit).toBe("commit-1");
-		expect(service.getSummary("task-1")?.latestTurnCheckpoint?.commit).toBe("commit-2");
+		// Turn-checkpoint capture is not a session-service responsibility: it is
+		// driven imperatively by the tRPC runtime-api layer on each send (see
+		// runtime-api.test.ts), not event-driven off the SDK "done" event here.
 	});
 
 	it("creates task entry and session mapping before start() resolves", async () => {
