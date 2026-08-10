@@ -79,7 +79,20 @@ jobs:
             exit 1
           fi
 
+          # npm refuses to publish a prerelease version (one with a
+          # `-<prerelease>` suffix) without an explicit dist-tag, so it never
+          # silently becomes `latest`. Derive the dist-tag from the first
+          # prerelease identifier (e.g. 1.0.0-modrev -> "modrev",
+          # 1.0.0-beta.1 -> "beta"); stable releases publish to "latest".
+          if [[ "$PACKAGE_VERSION" == *-* ]]; then
+            PRERELEASE="${PACKAGE_VERSION#*-}"
+            NPM_DIST_TAG="${PRERELEASE%%.*}"
+          else
+            NPM_DIST_TAG="latest"
+          fi
+
           echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "npm_dist_tag=$NPM_DIST_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build and validate package
         run: npm run prepublishOnly
@@ -97,7 +110,7 @@ jobs:
       # rebuilds the web-ui from scratch. Without these env vars, the
       # rebuild produces a bundle with no PostHog key baked in.
       - name: Publish to npm (OIDC trusted publishing)
-        run: npm publish --access public
+        run: npm publish --access public --tag "${{ steps.version.outputs.npm_dist_tag }}"
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
           POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
