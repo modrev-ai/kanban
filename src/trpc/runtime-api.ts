@@ -52,6 +52,22 @@ import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
+// The Modrev agent tracks its active model independently of the SDK's "last
+// used" Cline provider, so native launches for Modrev must resolve their
+// provider/model from the Kanban-owned Modrev config.
+function resolveNativeAgentLaunchOverrides(config: RuntimeConfigState): {
+	providerIdOverride?: string;
+	modelIdOverride?: string;
+} {
+	if (config.selectedAgentId !== "modrev") {
+		return {};
+	}
+	return {
+		...(config.modrevProviderId ? { providerIdOverride: config.modrevProviderId } : {}),
+		...(config.modrevModelId ? { modelIdOverride: config.modrevModelId } : {}),
+	};
+}
+
 export interface CreateRuntimeApiDependencies {
 	getActiveWorkspaceId: () => string | null;
 	getActiveRuntimeConfig?: () => RuntimeConfigState;
@@ -443,7 +459,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
 				let summary = await clineTaskSessionService.reloadTaskSession(body.taskId);
 				if (!summary && isHomeAgentSessionId(body.taskId)) {
-					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+					const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+						resolveNativeAgentLaunchOverrides(scopedRuntimeConfig),
+					);
 					summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: workspaceScope.workspacePath,
@@ -644,7 +663,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							};
 						}
 					} else {
-						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+						const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+							resolveNativeAgentLaunchOverrides(scopedRuntimeConfig),
+						);
 						summary = await clineTaskSessionService.startTaskSession({
 							taskId: body.taskId,
 							cwd: workspaceScope.workspacePath,
