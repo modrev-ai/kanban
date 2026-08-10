@@ -959,6 +959,16 @@ export const runtimeAgentDefinitionSchema = z.object({
 });
 export type RuntimeAgentDefinition = z.infer<typeof runtimeAgentDefinitionSchema>;
 
+// Retry policy applied to native-agent (Cline/Modrev) model-response failures.
+// `maxAttempts` is the number of retries after the first attempt; `delayMs` is
+// the wait between attempts.
+export const runtimeLlmRetrySettingsSchema = z.object({
+	enabled: z.boolean(),
+	delayMs: z.number().int().min(0),
+	maxAttempts: z.number().int().min(0),
+});
+export type RuntimeLlmRetrySettings = z.infer<typeof runtimeLlmRetrySettingsSchema>;
+
 export const runtimeConfigResponseSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema,
 	selectedShortcutLabel: z.string().nullable(),
@@ -980,6 +990,7 @@ export const runtimeConfigResponseSchema = z.object({
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
+	llmRetry: runtimeLlmRetrySettingsSchema,
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -993,6 +1004,7 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	openPrPromptTemplate: z.string().optional(),
 	modrevProviderId: z.string().nullable().optional(),
 	modrevModelId: z.string().nullable().optional(),
+	llmRetry: runtimeLlmRetrySettingsSchema.partial().optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 

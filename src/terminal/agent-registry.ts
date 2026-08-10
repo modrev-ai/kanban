@@ -133,5 +133,10 @@ export function buildRuntimeConfigResponse(
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
 		commitPromptTemplateDefault: runtimeConfig.commitPromptTemplateDefault,
 		openPrPromptTemplateDefault: runtimeConfig.openPrPromptTemplateDefault,
+		llmRetry: {
+			enabled: runtimeConfig.llmRetryEnabled,
+			delayMs: runtimeConfig.llmRetryDelayMs,
+			maxAttempts: runtimeConfig.llmRetryMaxAttempts,
+		},
 	};
 }

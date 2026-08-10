@@ -144,9 +144,18 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		saveConfig: async (workspaceScope, input) => {
 			const parsed = parseRuntimeConfigSaveRequest(input);
+			// The API exposes retry settings as a nested `llmRetry` object; the
+			// config layer stores them as flat keys.
+			const { llmRetry, ...restConfig } = parsed;
+			const configUpdate = {
+				...restConfig,
+				...(llmRetry?.enabled !== undefined ? { llmRetryEnabled: llmRetry.enabled } : {}),
+				...(llmRetry?.delayMs !== undefined ? { llmRetryDelayMs: llmRetry.delayMs } : {}),
+				...(llmRetry?.maxAttempts !== undefined ? { llmRetryMaxAttempts: llmRetry.maxAttempts } : {}),
+			};
 			let nextRuntimeConfig: RuntimeConfigState;
 			if (workspaceScope) {
-				nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, parsed);
+				nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, configUpdate);
 			} else {
 				const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
 				if (!activeRuntimeConfig) {
@@ -155,7 +164,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						message: "No active runtime config is available.",
 					});
 				}
-				nextRuntimeConfig = await updateRuntimeConfig(null, parsed);
+				nextRuntimeConfig = await updateRuntimeConfig(null, configUpdate);
 			}
 			if (workspaceScope && workspaceScope.workspaceId === deps.getActiveWorkspaceId()) {
 				deps.setActiveRuntimeConfig(nextRuntimeConfig);

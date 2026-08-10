@@ -52,6 +52,11 @@ export interface ApplyClineSessionEventInput {
 	// Invoked when a turn fails in a way that should tear the live session down
 	// (e.g. exhausted credits) rather than leave it running for a follow-up turn.
 	requestSessionAbort?: (taskId: string) => void;
+	// Invoked when a turn ends in a terminal model-response failure that surfaced
+	// as an SDK event (not a thrown error). Lets the service latch the failure so
+	// its retry loop can re-dispatch. `kind` is "credit_limit" for exhausted
+	// credits (never retried) or "model_error" for anything else.
+	onTurnError?: (taskId: string, error: { message: string; kind: "credit_limit" | "model_error" }) => void;
 }
 
 type ClineSdkChunkEvent = Extract<ClineSdkSessionEvent, { type: "chunk" }>;
@@ -256,6 +261,12 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 			// down instead of leaving a dead session bound for the next turn.
 			input.requestSessionAbort?.(taskId);
 		}
+		if (!recoverable) {
+			input.onTurnError?.(taskId, {
+				message: errorMessage ?? "Unknown agent error",
+				kind: creditLimitError ? "credit_limit" : "model_error",
+			});
+		}
 		if (recoverable && errorMessage) {
 			const retryMsg = createMessage(taskId, "system", `Retrying: ${errorMessage}`);
 			entry.messages.push(retryMsg);
@@ -294,6 +305,10 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 		const errorMessage = "error" in agentEvent ? extractAgentErrorMessage(agentEvent.error) : null;
 		const retainedToolActivity = getRetainedClineToolActivity(entry);
 		clearActiveTurnState(entry);
+		input.onTurnError?.(taskId, {
+			message: errorMessage ?? "Unknown agent error",
+			kind: input.isClineProvider && isCreditLimitError(errorMessage) ? "credit_limit" : "model_error",
+		});
 		emitSummary(input, {
 			state: "awaiting_review",
 			reviewReason: "error",

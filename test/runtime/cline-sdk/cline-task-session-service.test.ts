@@ -801,6 +801,86 @@ describe("InMemoryClineTaskSessionService", () => {
 		});
 	});
 
+	function createRetryService(runtimeConfig: {
+		llmRetryEnabled: boolean;
+		llmRetryDelayMs: number;
+		llmRetryMaxAttempts: number;
+	}): TaskSessionServiceHarness {
+		const runtime = createFakeClineSessionRuntime();
+		const runtimeSetup = createFakeRuntimeSetup();
+		const service = createInMemoryClineTaskSessionService({
+			createSessionRuntime: (options) => runtime.createRuntime(options),
+			createRuntimeSetup: vi.fn(async (_workspacePath: string) => runtimeSetup.setup),
+			runtimeConfig,
+		});
+		services.push(service);
+		return { service, runtime };
+	}
+
+	it("retries a failed send turn until it succeeds when retry is enabled", async () => {
+		const { service, runtime } = createRetryService({
+			llmRetryEnabled: true,
+			llmRetryMaxAttempts: 3,
+			llmRetryDelayMs: 5,
+		});
+		await service.startTaskSession({ taskId: "task-1", cwd: "/tmp/worktree", prompt: "start" });
+		await vi.waitFor(() => expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(1));
+
+		runtime.sendTaskSessionInputMock
+			.mockRejectedValueOnce(new Error("Model stream failed"))
+			.mockRejectedValueOnce(new Error("Model stream failed"))
+			.mockResolvedValueOnce({ text: "recovered answer" });
+
+		await service.sendTaskSessionInput("task-1", "hello", "act");
+
+		// One initial dispatch + two retries = three calls.
+		await vi.waitFor(() => expect(runtime.sendTaskSessionInputMock).toHaveBeenCalledTimes(3));
+		await vi.waitFor(() => {
+			expect(
+				service
+					.listMessages("task-1")
+					.some((m) => m.role === "assistant" && m.content.includes("recovered answer")),
+			).toBe(true);
+		});
+		expect(service.getSummary("task-1")?.reviewReason).not.toBe("error");
+	});
+
+	it("stops retrying a persistently failing send turn after the configured number of retries", async () => {
+		const { service, runtime } = createRetryService({
+			llmRetryEnabled: true,
+			llmRetryMaxAttempts: 2,
+			llmRetryDelayMs: 5,
+		});
+		await service.startTaskSession({ taskId: "task-1", cwd: "/tmp/worktree", prompt: "start" });
+		await vi.waitFor(() => expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(1));
+
+		runtime.sendTaskSessionInputMock.mockRejectedValue(new Error("persistent boom"));
+
+		await service.sendTaskSessionInput("task-1", "hello", "act");
+
+		// One initial dispatch + two retries, then it gives up.
+		await vi.waitFor(() => expect(runtime.sendTaskSessionInputMock).toHaveBeenCalledTimes(3));
+		await vi.waitFor(() => expect(service.getSummary("task-1")?.reviewReason).toBe("error"));
+		expect(runtime.sendTaskSessionInputMock).toHaveBeenCalledTimes(3);
+	});
+
+	it("does not retry a failed send turn when retry is disabled", async () => {
+		const { service, runtime } = createRetryService({
+			llmRetryEnabled: false,
+			llmRetryMaxAttempts: 5,
+			llmRetryDelayMs: 5,
+		});
+		await service.startTaskSession({ taskId: "task-1", cwd: "/tmp/worktree", prompt: "start" });
+		await vi.waitFor(() => expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(1));
+
+		runtime.sendTaskSessionInputMock.mockRejectedValue(new Error("boom"));
+
+		await service.sendTaskSessionInput("task-1", "hello", "act");
+
+		await vi.waitFor(() => expect(service.getSummary("task-1")?.reviewReason).toBe("error"));
+		expect(runtime.sendTaskSessionInputMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("queues follow-up chat input while the agent is still running", async () => {
 		const { service, runtime } = createTrackedService();
 
