@@ -32,7 +32,15 @@ const DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES = 6;
 // OpenAI-compatible endpoints (e.g. Modrev models) are therefore launched
 // through this built-in generic OpenAI-compatible proxy provider, configured
 // with the model's own base URL, API key, and model id.
-const GENERIC_OPENAI_COMPATIBLE_PROVIDER_ID = "litellm";
+//
+// It must be a provider that talks the OpenAI *chat-completions* API, not the
+// Responses API: Responses-based built-ins (litellm, openai-native) serialize
+// assistant turns as Responses `input` items, which a plain chat-completions
+// endpoint rejects with "data did not match any variant of untagged enum
+// InputParam" the moment the conversation contains a prior assistant message
+// (i.e. every turn after the first). openrouter uses chat-completions and
+// preserves multi-turn history correctly.
+const GENERIC_OPENAI_COMPATIBLE_PROVIDER_ID = "openrouter";
 
 interface ClineSessionHostBoundary {
 	start(input: ClineSdkStartSessionInput): Promise<{ sessionId: string; result?: unknown }>;
