@@ -14,6 +14,7 @@ import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateRuntimeConfig } from "../config/runtime-config";
+import { isNativeClineRuntimeAgent } from "../core/agent-catalog";
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
@@ -200,7 +201,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
 				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
-				let useClinePath = effectiveAgentId === "cline";
+				let useClinePath = isNativeClineRuntimeAgent(effectiveAgentId);
 				const shouldProbePersistedClineSession =
 					body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;
 				if (shouldProbePersistedClineSession) {

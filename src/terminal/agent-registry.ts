@@ -1,5 +1,9 @@
 import type { RuntimeConfigState } from "../config/runtime-config";
-import { getRuntimeLaunchSupportedAgentCatalog, RUNTIME_AGENT_CATALOG } from "../core/agent-catalog";
+import {
+	getRuntimeLaunchSupportedAgentCatalog,
+	isNativeClineRuntimeAgent,
+	RUNTIME_AGENT_CATALOG,
+} from "../core/agent-catalog";
 import type {
 	RuntimeAgentDefinition,
 	RuntimeAgentId,
@@ -49,7 +53,10 @@ function isRuntimeDebugModeEnabled(): boolean {
 }
 
 export function detectInstalledCommands(): string[] {
-	const candidates = [...RUNTIME_AGENT_CATALOG.map((entry) => entry.binary), "npx"];
+	const candidates = [
+		...RUNTIME_AGENT_CATALOG.map((entry) => entry.binary).filter((binary) => binary.length > 0),
+		"npx",
+	];
 	const detected: string[] = [];
 
 	for (const candidate of candidates) {
@@ -66,7 +73,7 @@ function getCuratedDefinitions(runtimeConfig: RuntimeConfigState, detected: stri
 	return getRuntimeLaunchSupportedAgentCatalog().map((entry) => {
 		const defaultArgs = getDefaultArgs(entry.id);
 		const command = joinCommand(entry.binary, defaultArgs);
-		const isInstalled = entry.id === "cline" ? true : detectedSet.has(entry.binary);
+		const isInstalled = isNativeClineRuntimeAgent(entry.id) ? true : detectedSet.has(entry.binary);
 		return {
 			id: entry.id,
 			label: entry.label,

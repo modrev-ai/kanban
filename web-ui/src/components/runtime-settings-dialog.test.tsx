@@ -89,6 +89,7 @@ vi.mock("@runtime-agent-catalog", () => ({
 		{ id: "cline", label: "Cline", binary: "cline" },
 		{ id: "claude", label: "Claude Code", binary: "claude" },
 	]),
+	isNativeClineRuntimeAgent: vi.fn((agentId: string) => agentId === "cline" || agentId === "modrev"),
 }));
 
 vi.mock("@runtime-shortcuts", () => ({
