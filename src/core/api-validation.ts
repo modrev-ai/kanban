@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
 	type RuntimeClineAccountSwitchRequest,
 	type RuntimeClineAddProviderRequest,
+	type RuntimeClineDeleteProviderRequest,
 	type RuntimeClineDeviceAuthCompleteRequest,
 	type RuntimeClineMcpOAuthRequest,
 	type RuntimeClineMcpSettingsSaveRequest,
@@ -35,6 +36,7 @@ import {
 	type RuntimeWorktreeEnsureRequest,
 	runtimeClineAccountSwitchRequestSchema,
 	runtimeClineAddProviderRequestSchema,
+	runtimeClineDeleteProviderRequestSchema,
 	runtimeClineDeviceAuthCompleteRequestSchema,
 	runtimeClineMcpOAuthRequestSchema,
 	runtimeClineMcpSettingsSaveRequestSchema,
@@ -403,6 +405,15 @@ export function parseClineUpdateProviderRequest(value: unknown): RuntimeClineUpd
 		...(parsed.modelsSourceUrl !== undefined ? { modelsSourceUrl: parsed.modelsSourceUrl?.trim() || null } : {}),
 		...(parsed.capabilities ? { capabilities: [...new Set(parsed.capabilities)] } : {}),
 	};
+}
+
+export function parseClineDeleteProviderRequest(value: unknown): RuntimeClineDeleteProviderRequest {
+	const parsed = parseWithSchema(runtimeClineDeleteProviderRequestSchema, value);
+	const providerId = parsed.providerId.trim().toLowerCase().replace(/\s+/g, "-");
+	if (!providerId) {
+		throw new Error("Provider ID cannot be empty.");
+	}
+	return { providerId };
 }
 
 export function parseClineProviderSettingsSaveRequest(value: unknown): RuntimeClineProviderSettingsSaveRequest {

@@ -1,4 +1,4 @@
-import { Circle, CircleDot, Pencil, Plus } from "lucide-react";
+import { Circle, CircleDot, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ReactElement, useState } from "react";
 
 import {
@@ -8,6 +8,16 @@ import {
 } from "@/components/shared/cline-add-provider-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogBody,
+	AlertDialogCancel,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/dialog";
 import type { AddClineProviderInput, UpdateClineProviderInput } from "@/hooks/use-runtime-settings-cline-controller";
 import type {
 	ModrevModel,
@@ -35,6 +45,8 @@ export function ModrevSetupSection({
 	const [dialogMode, setDialogMode] = useState<ClineProviderDialogMode>("add");
 	const [editInitialValues, setEditInitialValues] = useState<ClineProviderDialogInitialValues | null>(null);
 	const [preparingEditProviderId, setPreparingEditProviderId] = useState<string | null>(null);
+	const [modelPendingRemoval, setModelPendingRemoval] = useState<ModrevModel | null>(null);
+	const [isRemoving, setIsRemoving] = useState(false);
 
 	const openAddDialog = () => {
 		onError?.(null);
@@ -78,6 +90,25 @@ export function ModrevSetupSection({
 				onError?.(result.message ?? "Failed to select Modrev model.");
 				return;
 			}
+			onSaved?.();
+		})();
+	};
+
+	const handleConfirmRemove = () => {
+		const model = modelPendingRemoval;
+		if (!model) {
+			return;
+		}
+		void (async () => {
+			setIsRemoving(true);
+			onError?.(null);
+			const result = await controller.removeModel(model.providerId);
+			setIsRemoving(false);
+			if (!result.ok) {
+				onError?.(result.message ?? "Failed to remove Modrev model.");
+				return;
+			}
+			setModelPendingRemoval(null);
 			onSaved?.();
 		})();
 	};
@@ -151,16 +182,28 @@ export function ModrevSetupSection({
 											) : null}
 										</span>
 									</button>
-									<Button
-										variant="ghost"
-										size="sm"
-										icon={<Pencil size={14} />}
-										disabled={controlsDisabled || preparingEditProviderId !== null}
-										className="shrink-0"
-										onClick={() => openEditDialog(model)}
-									>
-										Edit
-									</Button>
+									<div className="flex shrink-0 items-center gap-1">
+										<Button
+											variant="ghost"
+											size="sm"
+											icon={<Pencil size={14} />}
+											disabled={controlsDisabled || preparingEditProviderId !== null}
+											onClick={() => openEditDialog(model)}
+										>
+											Edit
+										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											icon={<Trash2 size={14} />}
+											aria-label={`Remove ${model.name}`}
+											disabled={controlsDisabled}
+											onClick={() => {
+												onError?.(null);
+												setModelPendingRemoval(model);
+											}}
+										/>
+									</div>
 								</div>
 							);
 						})}
@@ -190,6 +233,45 @@ export function ModrevSetupSection({
 					return result;
 				}}
 			/>
+
+			<AlertDialog
+				open={modelPendingRemoval !== null}
+				onOpenChange={(isOpen) => {
+					if (!isOpen && !isRemoving) {
+						setModelPendingRemoval(null);
+					}
+				}}
+			>
+				<AlertDialogHeader>
+					<AlertDialogTitle>Remove this model?</AlertDialogTitle>
+				</AlertDialogHeader>
+				<AlertDialogBody>
+					<AlertDialogDescription>
+						This removes the Modrev model{modelPendingRemoval ? ` "${modelPendingRemoval.name}"` : ""} and its
+						saved credentials.
+					</AlertDialogDescription>
+					<p className="text-text-primary">This action cannot be undone.</p>
+				</AlertDialogBody>
+				<AlertDialogFooter>
+					<AlertDialogCancel asChild>
+						<Button variant="default" disabled={isRemoving} onClick={() => setModelPendingRemoval(null)}>
+							Cancel
+						</Button>
+					</AlertDialogCancel>
+					<AlertDialogAction asChild>
+						<Button
+							variant="danger"
+							disabled={isRemoving}
+							onClick={(event) => {
+								event.preventDefault();
+								handleConfirmRemove();
+							}}
+						>
+							{isRemoving ? "Removing..." : "Remove model"}
+						</Button>
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialog>
 		</>
 	);
 }

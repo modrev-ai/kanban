@@ -120,6 +120,14 @@ export async function updateClineProvider(
 	return await trpcClient.runtime.updateClineProvider.mutate(input);
 }
 
+export async function deleteClineProvider(
+	workspaceId: string | null,
+	input: { providerId: string },
+): Promise<RuntimeClineProviderSettings> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.deleteClineProvider.mutate(input);
+}
+
 export async function fetchClineProviderCatalog(
 	workspaceId: string | null,
 ): Promise<RuntimeClineProviderCatalogItem[]> {

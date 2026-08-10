@@ -14,6 +14,7 @@ import type { AddClineProviderInput, UpdateClineProviderInput } from "@/hooks/us
 import { getRuntimeClineProviderSettings } from "@/runtime/native-agent";
 import {
 	addClineProvider,
+	deleteClineProvider,
 	fetchClineProviderCatalog,
 	saveClineProviderSettings,
 	updateClineProvider,
@@ -52,6 +53,7 @@ export interface UseRuntimeSettingsModrevControllerResult {
 	selectModel: (providerId: string) => Promise<SaveResult>;
 	addModel: (input: AddClineProviderInput) => Promise<SaveResult>;
 	updateModel: (input: UpdateClineProviderInput) => Promise<SaveResult>;
+	removeModel: (providerId: string) => Promise<SaveResult>;
 	saveModrevSettings: () => Promise<SaveResult>;
 }
 
@@ -208,6 +210,33 @@ export function useRuntimeSettingsModrevController(
 		[activeProviderId, loadModels, persistActiveModel, workspaceId],
 	);
 
+	const removeModel = useCallback(
+		async (providerId: string): Promise<SaveResult> => {
+			const normalizedProviderId = providerId.trim().toLowerCase();
+			try {
+				await deleteClineProvider(workspaceId, { providerId: normalizedProviderId });
+				const nextCatalog = await fetchClineProviderCatalog(workspaceId);
+				catalogRequestIdRef.current += 1;
+				setCatalog(nextCatalog);
+				// If the removed model was active, promote another Modrev model so
+				// launches keep resolving, or clear the selection when none remain.
+				if (normalizedProviderId === activeProviderId) {
+					const nextActive = nextCatalog.find((item) => isModrevModelProviderId(item.id));
+					if (nextActive) {
+						await persistActiveModel(toModrevModel(nextActive));
+						setActiveProviderId(nextActive.id);
+					} else {
+						setActiveProviderId("");
+					}
+				}
+				return { ok: true };
+			} catch (error) {
+				return { ok: false, message: error instanceof Error ? error.message : String(error) };
+			}
+		},
+		[activeProviderId, persistActiveModel, workspaceId],
+	);
+
 	// Modrev model changes persist immediately (add/edit/select each call the
 	// backend), so there is no local draft to fold into the dialog's Save.
 	const hasUnsavedChanges = false;
@@ -237,6 +266,7 @@ export function useRuntimeSettingsModrevController(
 		selectModel,
 		addModel,
 		updateModel,
+		removeModel,
 		saveModrevSettings,
 	};
 }

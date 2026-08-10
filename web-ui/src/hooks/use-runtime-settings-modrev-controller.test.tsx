@@ -13,12 +13,14 @@ import type {
 const fetchClineProviderCatalogMock = vi.hoisted(() => vi.fn());
 const addClineProviderMock = vi.hoisted(() => vi.fn());
 const updateClineProviderMock = vi.hoisted(() => vi.fn());
+const deleteClineProviderMock = vi.hoisted(() => vi.fn());
 const saveClineProviderSettingsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/runtime/runtime-config-query", () => ({
 	fetchClineProviderCatalog: fetchClineProviderCatalogMock,
 	addClineProvider: addClineProviderMock,
 	updateClineProvider: updateClineProviderMock,
+	deleteClineProvider: deleteClineProviderMock,
 	saveClineProviderSettings: saveClineProviderSettingsMock,
 }));
 
@@ -31,6 +33,7 @@ interface HookSnapshot {
 	selectModel: (providerId: string) => Promise<{ ok: boolean; message?: string }>;
 	addModel: (input: Parameters<HookSnapshotControllerAdd>[0]) => Promise<{ ok: boolean; message?: string }>;
 	updateModel: (input: Parameters<HookSnapshotControllerUpdate>[0]) => Promise<{ ok: boolean; message?: string }>;
+	removeModel: (providerId: string) => Promise<{ ok: boolean; message?: string }>;
 	saveModrevSettings: () => Promise<{ ok: boolean; message?: string }>;
 }
 
@@ -107,6 +110,7 @@ function HookHarness({
 			selectModel: state.selectModel,
 			addModel: state.addModel,
 			updateModel: state.updateModel,
+			removeModel: state.removeModel,
 			saveModrevSettings: state.saveModrevSettings,
 		});
 	}, [onSnapshot, state]);
@@ -124,9 +128,11 @@ describe("useRuntimeSettingsModrevController", () => {
 		addClineProviderMock.mockReset();
 		updateClineProviderMock.mockReset();
 		saveClineProviderSettingsMock.mockReset();
+		deleteClineProviderMock.mockReset();
 		fetchClineProviderCatalogMock.mockResolvedValue([]);
 		addClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
 		updateClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
+		deleteClineProviderMock.mockResolvedValue(makeProviderSettings());
 		saveClineProviderSettingsMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
 
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
@@ -278,5 +284,39 @@ describe("useRuntimeSettingsModrevController", () => {
 			await flushAsyncWork();
 		});
 		expect(result.ok).toBe(false);
+	});
+
+	it("removes a model and promotes another when the active one is deleted", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		fetchClineProviderCatalogMock.mockResolvedValueOnce([
+			makeCatalogItem({ id: "modrev-a", name: "Modrev A", defaultModelId: "model-a" }),
+			makeCatalogItem({ id: "modrev-b", name: "Modrev B", defaultModelId: "model-b" }),
+		]);
+		// After the delete the reload returns only the surviving model.
+		fetchClineProviderCatalogMock.mockResolvedValue([
+			makeCatalogItem({ id: "modrev-b", name: "Modrev B", defaultModelId: "model-b" }),
+		]);
+		await act(async () => {
+			root.render(
+				<HookHarness
+					config={makeConfig(makeProviderSettings({ providerId: "modrev-a" }))}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+			await flushAsyncWork();
+		});
+
+		let result: { ok: boolean; message?: string } = { ok: false };
+		await act(async () => {
+			result = await requireSnapshot(latestSnapshot).removeModel("modrev-a");
+			await flushAsyncWork();
+		});
+
+		expect(result.ok).toBe(true);
+		expect(deleteClineProviderMock).toHaveBeenCalledWith("workspace-1", { providerId: "modrev-a" });
+		expect(requireSnapshot(latestSnapshot).models.map((model) => model.providerId)).toEqual(["modrev-b"]);
+		expect(requireSnapshot(latestSnapshot).activeProviderId).toBe("modrev-b");
 	});
 });
