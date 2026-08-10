@@ -1,11 +1,11 @@
-import { isClineProviderAuthenticated } from "@/runtime/native-agent";
+import { isClineProviderAuthenticated, isNativeClineAgentSelected } from "@/runtime/native-agent";
 import type { RuntimeAgentId, RuntimeClineProviderSettings } from "@/runtime/types";
 
 export function isSelectedAgentAuthenticated(
 	selectedAgentId: RuntimeAgentId | null | undefined,
 	clineProviderSettings: RuntimeClineProviderSettings | null | undefined,
 ): boolean {
-	if (selectedAgentId !== "cline") {
+	if (!isNativeClineAgentSelected(selectedAgentId)) {
 		return true;
 	}
 	return isClineProviderAuthenticated(clineProviderSettings);
