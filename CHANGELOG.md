@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0-modrev]
+
+- Added the Modrev agent: connect any OpenAI-compatible model using your own API key, base URL, and model ID
+- Manage multiple custom models from a Models list in settings, with the ability to add and remove them individually
+- Custom models now work end-to-end in the chat UI, including reliable multi-turn conversations
+- Added configurable automatic retry when a model response fails, so transient provider errors no longer end a task (new llmRetry settings)
+- Live sessions now abort immediately when provider credits are exhausted instead of retrying pointlessly
+- An NVIDIA provider is seeded automatically on startup from the NVIDIA_API_KEY environment variable
+- Fixed custom OpenAI-compatible providers failing on multi-turn conversations
+- Fixed runtime setup locks that could remain held after a service was disposed
+
 ## [0.1.70]
 
 - Fixed a freeze that could occur when clearing completed tasks on large boards by limiting cleanup concurrency
