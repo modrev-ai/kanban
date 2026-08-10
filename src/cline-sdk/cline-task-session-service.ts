@@ -121,16 +121,6 @@ function toErrorMessage(error: unknown): string {
 	}
 	return "Unknown error";
 }
-function isWorkerLimitError(error: unknown): boolean {
-	const message = toErrorMessage(error);
-	return (
-		message.includes("Worker local total request limit reached") ||
-		message.includes("ResourceExhausted") ||
-		message.includes("rate limit") ||
-		message.includes("quota")
-	);
-}
-
 function readAgentResultText(result: unknown): string | null {
 	if (!result || typeof result !== "object") {
 		return null;
@@ -184,6 +174,10 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		llmRetryMaxAttempts: number;
 	} | null;
 	private readonly runtimeSetupLeaseByWorkspacePath = new Map<string, Promise<ClineRuntimeSetupLease>>();
+	// Latches the most recent terminal model-response failure per task that
+	// surfaced as an SDK event (not a thrown error), so the send-turn retry loop
+	// can detect and re-dispatch it. Cleared before each dispatch attempt.
+	private readonly turnErrorByTaskId = new Map<string, { message: string; kind: "credit_limit" | "model_error" }>();
 
 	constructor(options: CreateInMemoryClineTaskSessionServiceOptions = {}) {
 		const createSessionRuntime = options.createSessionRuntime ?? createInMemoryClineSessionRuntime;
@@ -263,6 +257,173 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			},
 		});
 		this.emitSummary(errorSummary);
+	}
+
+	private resolveRetryPolicy(): { enabled: boolean; maxRetries: number; delayMs: number } {
+		const cfg = this.runtimeConfig;
+		return {
+			enabled: cfg?.llmRetryEnabled ?? false,
+			// llmRetryMaxAttempts is the number of *retries* after the first try.
+			maxRetries: Math.max(0, Math.trunc(cfg?.llmRetryMaxAttempts ?? 0)),
+			delayMs: Math.max(0, Math.trunc(cfg?.llmRetryDelayMs ?? 0)),
+		};
+	}
+
+	private emitTurnRetryingStatus(
+		entry: ClineTaskSessionEntry,
+		attempt: number,
+		maxRetries: number,
+		message: string,
+		delayMs: number,
+	): void {
+		clearActiveTurnState(entry);
+		this.emitSummary(
+			updateSummary(entry, {
+				state: "running",
+				reviewReason: null,
+				warningMessage: null,
+				lastOutputAt: now(),
+				lastHookAt: now(),
+				latestHookActivity: {
+					activityText: `Retrying after error (attempt ${attempt}/${maxRetries}, waiting ${Math.round(
+						delayMs / 1000,
+					)}s): ${message}`,
+					toolName: null,
+					toolInputSummary: null,
+					finalMessage: null,
+					hookEventName: "turn_start",
+					notificationType: null,
+					source: "cline-sdk",
+				},
+			}),
+		);
+	}
+
+	private applySendTurnResult(
+		taskId: string,
+		entry: ClineTaskSessionEntry,
+		result: unknown,
+		warnings: string[] | undefined,
+		assistantCountBeforeSend: number,
+	): void {
+		const warningMessage = formatStartWarnings(warnings);
+		if (warningMessage) {
+			this.emitSummary(updateSummary(entry, { warningMessage }));
+		}
+		const agentText = readAgentResultText(result);
+		if (agentText) {
+			const assistantCountAfterSend = entry.messages.filter((message) => message.role === "assistant").length;
+			if (assistantCountAfterSend > assistantCountBeforeSend) {
+				return;
+			}
+			const agentMessage =
+				setOrCreateAssistantMessage(entry, taskId, agentText) ?? createAssistantMessage(entry, taskId, agentText);
+			this.emitMessage(taskId, agentMessage);
+		}
+	}
+
+	private async dispatchTurnWithContextRecovery(input: {
+		taskId: string;
+		prompt: string;
+		mode: RuntimeTaskSessionMode;
+		images?: RuntimeTaskImage[];
+		delivery?: "queue" | "steer";
+	}): Promise<{ result: unknown; warnings?: string[] }> {
+		try {
+			return await this.dispatchResolvedTaskInput(input);
+		} catch (error) {
+			const recovered = await this.retryAfterContextOverflow({
+				taskId: input.taskId,
+				prompt: input.prompt,
+				mode: input.mode,
+				images: input.images,
+				error,
+			});
+			if (recovered) {
+				return recovered;
+			}
+			throw error;
+		}
+	}
+
+	// Runs one send turn and retries on ANY model-response failure (thrown error
+	// or a terminal SDK error event), bounded by the configured retry policy.
+	// Credit-exhaustion and user cancellation are never retried.
+	private async runSendTurnWithRetry(input: {
+		taskId: string;
+		entry: ClineTaskSessionEntry;
+		normalized: string;
+		mode: RuntimeTaskSessionMode;
+		images?: RuntimeTaskImage[];
+		queueDelivery: boolean;
+		assistantCountBeforeSend: number;
+	}): Promise<void> {
+		const { taskId, entry, normalized, mode, images, queueDelivery, assistantCountBeforeSend } = input;
+		let resolvedPrompt = normalized;
+		try {
+			const runtimeSetup = await this.ensureRuntimeSetup(entry.summary.workspacePath ?? "");
+			resolvedPrompt = runtimeSetup.resolvePrompt(normalized);
+		} catch (error) {
+			this.emitTaskFailure(taskId, entry, "send", error);
+			return;
+		}
+		const policy = this.resolveRetryPolicy();
+		let retriesUsed = 0;
+		while (true) {
+			this.turnErrorByTaskId.delete(taskId);
+			let result: unknown;
+			let warnings: string[] | undefined;
+			let dispatchError: unknown = null;
+			try {
+				const dispatched = await this.dispatchTurnWithContextRecovery({
+					taskId,
+					prompt: resolvedPrompt,
+					mode,
+					images,
+					delivery: queueDelivery ? "queue" : undefined,
+				});
+				result = dispatched.result;
+				warnings = dispatched.warnings;
+			} catch (error) {
+				dispatchError = error;
+			}
+			// A terminal error may arrive as a trailing SDK event just after the
+			// dispatch promise settles; give it a tick to land before we decide.
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			const latched = this.turnErrorByTaskId.get(taskId);
+			const failureMessage =
+				dispatchError != null ? toErrorMessage(dispatchError) : latched ? latched.message : null;
+			if (failureMessage === null) {
+				this.applySendTurnResult(taskId, entry, result, warnings, assistantCountBeforeSend);
+				return;
+			}
+			const creditLimit =
+				latched?.kind === "credit_limit" ||
+				(dispatchError != null &&
+					this.isClineProviderForTask(taskId) &&
+					isCreditLimitError(toErrorMessage(dispatchError)));
+			const canRetry =
+				policy.enabled &&
+				!creditLimit &&
+				retriesUsed < policy.maxRetries &&
+				!this.pendingTurnCancelTaskIds.has(taskId);
+			if (!canRetry) {
+				if (dispatchError != null) {
+					this.emitTaskFailure(taskId, entry, "send", dispatchError);
+				} else {
+					// The adapter already emitted a failure summary for the event;
+					// still surface any error text the SDK returned as the result.
+					this.applySendTurnResult(taskId, entry, result, warnings, assistantCountBeforeSend);
+				}
+				return;
+			}
+			retriesUsed += 1;
+			this.turnErrorByTaskId.delete(taskId);
+			this.emitTurnRetryingStatus(entry, retriesUsed, policy.maxRetries, failureMessage, policy.delayMs);
+			if (policy.delayMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, policy.delayMs));
+			}
+		}
 	}
 
 	private async dispatchResolvedTaskInput(input: {
@@ -611,118 +772,15 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			});
 			this.emitSummary(waitingSummary);
 			const assistantCountBeforeSend = entry.messages.filter((message) => message.role === "assistant").length;
-			let resolvedPrompt: string;
-			void this.ensureRuntimeSetup(entry.summary.workspacePath ?? "")
-				.then(async (runtimeSetup) => {
-					resolvedPrompt = runtimeSetup.resolvePrompt(normalized);
-					try {
-						return await this.dispatchResolvedTaskInput({
-							taskId,
-							prompt: resolvedPrompt,
-							mode: effectiveMode,
-							images,
-							delivery: queueDelivery ? "queue" : undefined,
-						});
-					} catch (error) {
-						const recovered = await this.retryAfterContextOverflow({
-							taskId,
-							prompt: resolvedPrompt,
-							mode: effectiveMode,
-							images,
-							error,
-						});
-						if (recovered) {
-							return recovered;
-						}
-						throw error;
-					}
-				})
-				.then(({ result, warnings }) => {
-					const warningMessage = formatStartWarnings(warnings);
-					if (warningMessage) {
-						this.emitSummary(
-							updateSummary(entry, {
-								warningMessage,
-							}),
-						);
-					}
-					const agentText = readAgentResultText(result);
-					if (agentText) {
-						const assistantCountAfterSend = entry.messages.filter(
-							(message) => message.role === "assistant",
-						).length;
-						if (assistantCountAfterSend > assistantCountBeforeSend) {
-							return;
-						}
-						const agentMessage =
-							setOrCreateAssistantMessage(entry, taskId, agentText) ??
-							createAssistantMessage(entry, taskId, agentText);
-						this.emitMessage(taskId, agentMessage);
-					}
-				})
-
-				.catch(async (error: unknown) => {
-					// Check if we should retry due to worker limit / rate limit errors
-					if (this.runtimeConfig?.llmRetryEnabled && isWorkerLimitError(error)) {
-						const maxAttempts = this.runtimeConfig.llmRetryMaxAttempts ?? 20;
-						const delayMs = this.runtimeConfig.llmRetryDelayMs ?? 15000;
-
-						for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-							// Wait before retrying
-							await new Promise((resolve) => setTimeout(resolve, delayMs));
-
-							try {
-								// Retry the dispatch
-								const recovered = await this.dispatchResolvedTaskInput({
-									taskId,
-									prompt: resolvedPrompt,
-									mode: effectiveMode,
-									images,
-									delivery: queueDelivery ? "queue" : undefined,
-								});
-
-								if (recovered) {
-									// Success on retry - emit summary and return
-									const warningMessage = formatStartWarnings(recovered.warnings);
-									if (warningMessage) {
-										this.emitSummary(
-											updateSummary(entry, {
-												warningMessage,
-											}),
-										);
-									}
-									const agentText = readAgentResultText(recovered.result);
-									if (agentText) {
-										const agentMessage =
-											setOrCreateAssistantMessage(entry, taskId, agentText) ??
-											createAssistantMessage(entry, taskId, agentText);
-										this.emitMessage(taskId, agentMessage);
-									}
-									return;
-								}
-							} catch (retryError) {
-								// Check if this is also a worker limit error
-								if (!isWorkerLimitError(retryError)) {
-									// Different error, don't retry further
-									this.emitTaskFailure(taskId, entry, "send", retryError);
-									return;
-								}
-								// If this was the last attempt, emit failure
-								if (attempt === maxAttempts) {
-									this.emitTaskFailure(taskId, entry, "send", retryError);
-									return;
-								}
-								// Continue to next retry attempt
-							}
-						}
-						// If we exhausted all retries
-						this.emitTaskFailure(taskId, entry, "send", error);
-						return;
-					}
-
-					// Not a retryable error or retry disabled
-					this.emitTaskFailure(taskId, entry, "send", error);
-				});
+			void this.runSendTurnWithRetry({
+				taskId,
+				entry,
+				normalized,
+				mode: effectiveMode,
+				images,
+				queueDelivery,
+				assistantCountBeforeSend,
+			});
 		}
 		const summary = updateSummary(entry, {
 			state: "running",
@@ -911,11 +969,30 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			isClineProvider: this.isClineProviderForTask(taskId),
 			emitSummary: (summary) => this.emitSummary(summary),
 			emitMessage: (taskId, message) => this.emitMessage(taskId, message),
+			requestSessionAbort: (taskId) => {
+				void this.sessionRuntime.abortTaskSession(taskId).catch(() => {});
+			},
+			onTurnError: (taskId, error) => {
+				this.turnErrorByTaskId.set(taskId, error);
+			},
 		});
 	}
 
 	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
-		const lease = await this.watcherRegistry.acquire(workspacePath);
+		// Hold onto the acquired lease per workspace so `dispose()` can release it
+		// (and let the ref-counted watcher registry tear the setup down). Reusing
+		// the cached lease also keeps this service to a single ref per workspace.
+		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(workspacePath);
+		if (!leasePromise) {
+			leasePromise = this.watcherRegistry.acquire(workspacePath).catch((error) => {
+				if (this.runtimeSetupLeaseByWorkspacePath.get(workspacePath) === leasePromise) {
+					this.runtimeSetupLeaseByWorkspacePath.delete(workspacePath);
+				}
+				throw error;
+			});
+			this.runtimeSetupLeaseByWorkspacePath.set(workspacePath, leasePromise);
+		}
+		const lease = await leasePromise;
 		return lease.setup;
 	}
 }

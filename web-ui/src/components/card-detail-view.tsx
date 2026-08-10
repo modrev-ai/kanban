@@ -22,6 +22,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
+	RuntimeTaskClineSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
@@ -455,7 +456,7 @@ export function CardDetailView({
 	const { startDrag: startDetailDiffResize } = useResizeDrag();
 	const detailLayoutRef = useRef<HTMLDivElement | null>(null);
 	const hasExplicitTaskClineSettings =
-		selection.card.agentId === "cline" || selection.card.clineSettings !== undefined;
+		isNativeClineAgentSelected(selection.card.agentId) || selection.card.clineSettings !== undefined;
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 	const detailDiffRowRef = useRef<HTMLDivElement | null>(null);
 	const clineAgentChatPanelRef = useRef<ClineAgentChatPanelHandle | null>(null);
@@ -514,6 +515,26 @@ export function CardDetailView({
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
+	// Modrev tasks resolve their model from Kanban's independent Modrev config
+	// rather than the shared Cline provider selection, so seed the chat panel
+	// with it when the card has no explicit per-task override yet.
+	const effectiveTaskClineSettings = useMemo<RuntimeTaskClineSettings | undefined>(() => {
+		if (selection.card.clineSettings !== undefined) {
+			return selection.card.clineSettings;
+		}
+		if (effectiveTaskAgentId === "modrev" && runtimeConfig?.modrevProviderId) {
+			return {
+				providerId: runtimeConfig.modrevProviderId,
+				...(runtimeConfig.modrevModelId ? { modelId: runtimeConfig.modrevModelId } : {}),
+			};
+		}
+		return undefined;
+	}, [
+		effectiveTaskAgentId,
+		runtimeConfig?.modrevModelId,
+		runtimeConfig?.modrevProviderId,
+		selection.card.clineSettings,
+	]);
 	const availablePaths = useMemo(() => {
 		if (!runtimeFiles || runtimeFiles.length === 0) {
 			return [];
@@ -641,7 +662,7 @@ export function CardDetailView({
 			showComposerModeToggle={false}
 			workspaceId={currentProjectId}
 			runtimeConfig={runtimeConfig}
-			taskClineSettings={selection.card.clineSettings}
+			taskClineSettings={effectiveTaskClineSettings}
 			taskHasExplicitClineSettings={hasExplicitTaskClineSettings}
 			onClineSettingsSaved={onClineSettingsSaved}
 			onTaskClineSettingsChanged={onTaskClineSettingsChanged}

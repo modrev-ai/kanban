@@ -58,8 +58,11 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 		},
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
+		modrevProviderId: null,
+		modrevModelId: null,
 		commitPromptTemplateDefault: "",
 		openPrPromptTemplateDefault: "",
+		llmRetry: { enabled: true, delayMs: 15000, maxAttempts: 20 },
 	};
 }
 

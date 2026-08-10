@@ -12,13 +12,15 @@ import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel
 import { useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
 import { useHomeAgentSession } from "@/hooks/use-home-agent-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { selectLatestTaskChatMessageForTask } from "@/runtime/native-agent";
+import { isNativeClineAgentSelected, selectLatestTaskChatMessageForTask } from "@/runtime/native-agent";
+import { saveRuntimeConfig } from "@/runtime/runtime-config-query";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeConfigResponse,
 	RuntimeGitRepositoryInfo,
 	RuntimeStateStreamTaskChatMessage,
 	RuntimeTaskChatMessage,
+	RuntimeTaskClineSettings,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
@@ -152,6 +154,30 @@ export function useHomeSidebarAgentPanel({
 	}
 
 	if (panelMode === "chat" && taskId) {
+		// The Modrev agent tracks its active model independently of the Cline
+		// provider selection, so seed the picker from Modrev config and persist
+		// changes back there instead of the shared Cline provider settings.
+		const isModrevHomeAgent = runtimeProjectConfig?.selectedAgentId === "modrev";
+		const modrevTaskClineSettings: RuntimeTaskClineSettings | undefined =
+			isModrevHomeAgent && runtimeProjectConfig?.modrevProviderId
+				? {
+						providerId: runtimeProjectConfig.modrevProviderId,
+						...(runtimeProjectConfig.modrevModelId ? { modelId: runtimeProjectConfig.modrevModelId } : {}),
+					}
+				: undefined;
+		const handleModrevHomeModelChange = (settings: {
+			providerId: string;
+			modelId: string;
+			reasoningEffort: string;
+		}) => {
+			if (!isModrevHomeAgent) {
+				return;
+			}
+			void saveRuntimeConfig(currentProjectId, {
+				modrevProviderId: settings.providerId || null,
+				modrevModelId: settings.modelId || null,
+			});
+		};
 		return (
 			<ClineAgentChatPanel
 				key={taskId}
@@ -161,6 +187,9 @@ export function useHomeSidebarAgentPanel({
 				showComposerModeToggle={false}
 				workspaceId={currentProjectId}
 				runtimeConfig={runtimeProjectConfig}
+				taskClineSettings={modrevTaskClineSettings}
+				taskHasExplicitClineSettings={isModrevHomeAgent}
+				onTaskClineSettingsChanged={isModrevHomeAgent ? handleModrevHomeModelChange : undefined}
 				onSendMessage={handleSendHomeClineChatMessage}
 				onCancelTurn={handleCancelHomeClineChatTurn}
 				onLoadMessages={handleLoadHomeClineChatMessages}
@@ -188,7 +217,7 @@ export function useHomeSidebarAgentPanel({
 		);
 	}
 
-	if (runtimeProjectConfig.selectedAgentId !== "cline") {
+	if (!isNativeClineAgentSelected(runtimeProjectConfig.selectedAgentId)) {
 		return (
 			<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-center text-sm text-text-secondary">
 				No runnable {selectedAgentLabel} command is configured. Open Settings, install the CLI, and select it.
@@ -198,7 +227,7 @@ export function useHomeSidebarAgentPanel({
 
 	return (
 		<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-center text-sm text-text-secondary">
-			Select a Cline provider in Settings to start a home chat session.
+			Select a {selectedAgentLabel} model in Settings to start a home chat session.
 		</div>
 	);
 }

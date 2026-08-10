@@ -1,4 +1,4 @@
-import { isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
+import { isNativeClineRuntimeAgent, isRuntimeAgentLaunchSupported } from "@runtime-agent-catalog";
 import type {
 	RuntimeAgentId,
 	RuntimeClineProviderSettings,
@@ -8,7 +8,7 @@ import type {
 } from "@/runtime/types";
 
 export function isNativeClineAgentSelected(agentId: RuntimeAgentId | null | undefined): boolean {
-	return agentId === "cline";
+	return isNativeClineRuntimeAgent(agentId);
 }
 
 export function getRuntimeClineProviderSettings(
@@ -73,7 +73,7 @@ export function isTaskAgentSetupSatisfied(
 			return true;
 		}
 		return config.agents.some(
-			(agent) => agent.id !== "cline" && isRuntimeAgentLaunchSupported(agent.id) && agent.installed,
+			(agent) => !isNativeClineRuntimeAgent(agent.id) && isRuntimeAgentLaunchSupported(agent.id) && agent.installed,
 		);
 	}
 	return config.agents.some((agent) => isRuntimeAgentLaunchSupported(agent.id) && agent.installed);

@@ -13,6 +13,8 @@ import {
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
+import { isModrevModelProviderId } from "@/runtime/modrev-provider";
+import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
@@ -69,7 +71,7 @@ export function useTaskAgentModelPicker({
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 
 	useEffect(() => {
-		if (!active || effectiveAgentId !== "cline") {
+		if (!active || !isNativeClineAgentSelected(effectiveAgentId)) {
 			return;
 		}
 		let cancelled = false;
@@ -100,7 +102,7 @@ export function useTaskAgentModelPicker({
 	const effectiveProviderId = (clineProviderId ?? defaultProviderId ?? "").trim() || null;
 
 	useEffect(() => {
-		if (!active || effectiveAgentId !== "cline" || !effectiveProviderId) {
+		if (!active || !isNativeClineAgentSelected(effectiveAgentId) || !effectiveProviderId) {
 			setProviderModels([]);
 			return;
 		}
@@ -145,30 +147,42 @@ export function useTaskAgentModelPicker({
 		];
 	}, [defaultAgentId]);
 
+	// For the Modrev agent, the selectable "providers" are its own registered
+	// models; hide the built-in Cline providers so the picker stays scoped.
+	const scopedProviderCatalog = useMemo(
+		() =>
+			effectiveAgentId === "modrev"
+				? providerCatalog.filter((provider) => isModrevModelProviderId(provider.id))
+				: providerCatalog,
+		[effectiveAgentId, providerCatalog],
+	);
+
 	const clineProviderOptions = useMemo(() => {
 		let firstLabel = "Default";
 		if (defaultProviderId) {
-			const defaultProvider = providerCatalog.find((p) => p.id === defaultProviderId);
+			const defaultProvider = scopedProviderCatalog.find((p) => p.id === defaultProviderId);
 			firstLabel = defaultProvider ? defaultProvider.name : defaultProviderId;
 		}
 		return [
 			{ value: "", label: firstLabel },
 			// Exclude the default provider from the explicit list — it's already represented by the first option
-			...providerCatalog.filter((p) => p.id !== defaultProviderId).map((p) => ({ value: p.id, label: p.name })),
+			...scopedProviderCatalog
+				.filter((p) => p.id !== defaultProviderId)
+				.map((p) => ({ value: p.id, label: p.name })),
 		];
-	}, [providerCatalog, defaultProviderId]);
+	}, [scopedProviderCatalog, defaultProviderId]);
 
 	// Map of provider ID → its catalog default model ID. Used by the component to
 	// auto-select the right model when the user switches providers.
 	const providerDefaultModels = useMemo(() => {
 		const map: Record<string, string> = {};
-		for (const p of providerCatalog) {
+		for (const p of scopedProviderCatalog) {
 			if (p.defaultModelId) {
 				map[p.id] = p.defaultModelId;
 			}
 		}
 		return map;
-	}, [providerCatalog]);
+	}, [scopedProviderCatalog]);
 
 	// When an explicit provider override is selected, the "Default" model label should
 	// reflect that provider's default model — not the global settings model.
@@ -274,10 +288,10 @@ export function TaskAgentModelPicker({
 		[clineSettings, onClineSettingsChange],
 	);
 
-	// Show the Cline provider picker when the effective agent is "cline"
-	// (either explicitly overridden to cline, or defaulting to cline)
+	// Show the Cline provider picker when the effective agent runs on the native
+	// Cline runtime (Cline or Modrev), whether explicitly overridden or default.
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
-	const showClineProviderPicker = effectiveAgentId === "cline";
+	const showClineProviderPicker = isNativeClineAgentSelected(effectiveAgentId);
 
 	// Show the Cline model picker when a provider is effectively selected
 	// (either explicitly overridden, or the global default provider is set)
@@ -472,8 +486,11 @@ export function TaskAgentModelPicker({
 								value={agentId ?? ""}
 								onChange={(e) => {
 									const value = e.currentTarget.value;
-									onAgentIdChange(value ? (value as RuntimeAgentId) : undefined);
-									if (value !== "cline") {
+									const nextAgentId = value ? (value as RuntimeAgentId) : undefined;
+									onAgentIdChange(nextAgentId);
+									// Keep Cline/Modrev provider settings when switching between
+									// native agents; clear them when moving to a CLI agent/default.
+									if (!isNativeClineAgentSelected(nextAgentId)) {
 										onClineSettingsChange?.(undefined);
 										setReasoningEffort("");
 									}

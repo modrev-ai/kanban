@@ -406,6 +406,14 @@ async function writeModelsRegistry(state: LocalModelsFile): Promise<void> {
 	await writeFile(resolveModelsPath(), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
+// Loads any locally-registered custom providers (persisted in models.json) into
+// the SDK's provider registry. Adding a provider does this in-process, but a
+// fresh runtime must call it so custom providers survive a restart and are
+// recognized at task launch.
+export async function ensureSdkCustomProvidersLoaded(): Promise<void> {
+	await ensureCustomProvidersLoaded(providerManager);
+}
+
 export async function addSdkCustomProvider(input: AddSdkCustomProviderInput): Promise<void> {
 	await addLocalProvider(providerManager, {
 		providerId: input.providerId,

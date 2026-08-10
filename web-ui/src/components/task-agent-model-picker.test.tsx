@@ -18,6 +18,7 @@ vi.mock("@runtime-agent-catalog", () => ({
 		{ id: "cline", label: "Cline", binary: "cline" },
 		{ id: "claude", label: "Claude Code", binary: "claude" },
 	]),
+	isNativeClineRuntimeAgent: vi.fn((agentId: string) => agentId === "cline" || agentId === "modrev"),
 }));
 
 vi.mock("@/runtime/runtime-config-query", () => ({
@@ -96,6 +97,49 @@ describe("useTaskAgentModelPicker – clineProviderOptions", () => {
 			{ value: "anthropic", label: "Anthropic" },
 		]);
 	});
+	it("scopes provider options to Modrev models when the agent is modrev", async () => {
+		const catalog: RuntimeClineProviderCatalogItem[] = [
+			createProvider("cline", "Cline", true),
+			createProvider("anthropic", "Anthropic", false),
+			createProvider("modrev-a", "Modrev A", true, "model-a"),
+			createProvider("modrev-b", "Modrev B", true, "model-b"),
+		];
+		fetchClineProviderCatalogMock.mockResolvedValue(catalog);
+		fetchClineProviderModelsMock.mockResolvedValue([]);
+
+		let snapshot: UseTaskAgentModelPickerResult | null = null;
+		const { useTaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
+
+		function Harness() {
+			const result = useTaskAgentModelPicker({
+				active: true,
+				workspaceId: null,
+				agentId: "modrev",
+				clineSettings: undefined,
+				defaultAgentId: "modrev",
+				defaultProviderId: "modrev-a",
+				defaultModelId: null,
+			});
+			useEffect(() => {
+				snapshot = result;
+			});
+			return null;
+		}
+
+		await act(async () => root.render(<Harness />));
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		expect(fetchClineProviderCatalogMock).toHaveBeenCalled();
+		expect(snapshot).not.toBeNull();
+		const values = snapshot!.clineProviderOptions.map((option) => option.value);
+		// Only Modrev models are offered; built-in Cline providers are hidden.
+		expect(values).not.toContain("cline");
+		expect(values).not.toContain("anthropic");
+		expect(values).toContain("modrev-b");
+	});
+
 	it("excludes the default provider from the explicit list", async () => {
 		const catalog: RuntimeClineProviderCatalogItem[] = [
 			createProvider("cline", "Cline", true),

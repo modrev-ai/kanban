@@ -14,6 +14,7 @@ import {
 	formatRulesForSystemPrompt,
 	getClineDefaultSystemPrompt,
 	isRuleEnabled,
+	Llms,
 	type MessageWithMetadata,
 	type RuleConfig,
 	resolveClineDataDir,
@@ -24,6 +25,7 @@ import {
 } from "@clinebot/core";
 import { CLINE_BUILTIN_SLASH_COMMANDS } from "./cline-slash-commands";
 import { getCliTelemetryService } from "./cline-telemetry-service";
+import { ensureSdkCustomProvidersLoaded } from "./sdk-provider-boundary";
 
 export { TelemetryLoggerSink, TelemetryService } from "@clinebot/core";
 
@@ -46,10 +48,25 @@ export type ClineSdkToolApprovalRequest = ToolApprovalRequest;
 export type ClineSdkToolApprovalResult = ToolApprovalResult;
 
 export async function createClineSdkSessionHost(): Promise<ClineSdkSessionHost> {
+	// Register any locally-defined custom providers (e.g. Modrev models) into the
+	// SDK registry before the host boots, so they are recognized at task launch
+	// even on a fresh runtime that has not added a provider this session.
+	await ensureSdkCustomProvidersLoaded().catch(() => {});
 	return await ClineCore.create({
 		backendMode: "auto",
 		telemetry: getCliTelemetryService(),
 	});
+}
+
+// Returns true when the provider id is a built-in SDK provider (anthropic,
+// openai, cline, etc.). Custom providers (e.g. Modrev models) are not built in
+// and must be routed through the generic OpenAI-compatible provider at launch.
+export function isBuiltInSdkProviderId(providerId: string): boolean {
+	try {
+		return Llms.isBuiltInProviderId(Llms.normalizeProviderId(providerId));
+	} catch {
+		return false;
+	}
 }
 
 export function resolveClineSdkDataDir(): string {

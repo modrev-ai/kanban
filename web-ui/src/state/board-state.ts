@@ -3,6 +3,7 @@ import { createShortTaskId } from "@runtime-task-id";
 import * as runtimeTaskState from "@runtime-task-state";
 
 import { createInitialBoardData } from "@/data/board-data";
+import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import type { RuntimeAgentId, RuntimeClineReasoningEffort, RuntimeTaskClineSettings } from "@/runtime/types";
 import { isAllowedCrossColumnCardMove, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
 import {
@@ -593,7 +594,7 @@ export function applyTaskDetailClineSettingsSelection(
 	}
 
 	const hasExplicitTaskAgentSettings =
-		selection.card.agentId === "cline" || selection.card.clineSettings !== undefined;
+		isNativeClineAgentSelected(selection.card.agentId) || selection.card.clineSettings !== undefined;
 	if (!hasExplicitTaskAgentSettings) {
 		return { board, updated: false };
 	}
@@ -629,7 +630,7 @@ export function applyTaskDetailClineSettingsChange(
 	}
 
 	const hasExplicitTaskAgentSettings =
-		selection.card.agentId === "cline" || selection.card.clineSettings !== undefined;
+		isNativeClineAgentSelected(selection.card.agentId) || selection.card.clineSettings !== undefined;
 	if (!hasExplicitTaskAgentSettings) {
 		return { board, updated: false };
 	}
@@ -640,8 +641,12 @@ export function applyTaskDetailClineSettingsChange(
 		return { board, updated: false };
 	}
 
+	// Preserve the card's native agent (Cline or Modrev) rather than forcing it
+	// back to Cline whenever the model changes.
+	const nextAgentId = isNativeClineAgentSelected(selection.card.agentId) ? selection.card.agentId : "cline";
+
 	return applyTaskDetailClineSettingsSelection(board, taskId, {
-		agentId: "cline",
+		agentId: nextAgentId,
 		clineSettings: {
 			providerId: nextTaskProviderId,
 			modelId: nextTaskModelId,

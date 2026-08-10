@@ -13,6 +13,8 @@ import type {
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderRequest,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineDeleteProviderRequest,
+	RuntimeClineDeleteProviderResponse,
 	RuntimeClineDeviceAuthCompleteRequest,
 	RuntimeClineDeviceAuthCompleteResponse,
 	RuntimeClineDeviceAuthStartResponse,
@@ -104,6 +106,8 @@ import {
 	runtimeClineAccountSwitchResponseSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineAddProviderResponseSchema,
+	runtimeClineDeleteProviderRequestSchema,
+	runtimeClineDeleteProviderResponseSchema,
 	runtimeClineDeviceAuthCompleteRequestSchema,
 	runtimeClineDeviceAuthCompleteResponseSchema,
 	runtimeClineDeviceAuthStartResponseSchema,
@@ -214,6 +218,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineUpdateProviderRequest,
 		) => Promise<RuntimeClineUpdateProviderResponse>;
+		deleteClineProvider: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClineDeleteProviderRequest,
+		) => Promise<RuntimeClineDeleteProviderResponse>;
 		startTaskSession: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStartRequest,
@@ -454,6 +462,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeClineUpdateProviderResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.updateClineProvider(ctx.workspaceScope, input);
+			}),
+		deleteClineProvider: t.procedure
+			.input(runtimeClineDeleteProviderRequestSchema)
+			.output(runtimeClineDeleteProviderResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.deleteClineProvider(ctx.workspaceScope, input);
 			}),
 		startTaskSession: workspaceProcedure
 			.input(runtimeTaskSessionStartRequestSchema)

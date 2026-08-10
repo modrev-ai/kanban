@@ -20,6 +20,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeProjectSummary } from "@/runtime/types";
 import {
 	LocalStorageKey,
@@ -402,7 +403,7 @@ export function ProjectNavigationPanel({
 				</>
 			) : (
 				<div className="flex flex-1 min-h-0 flex-col">
-					{selectedAgentId && selectedAgentId !== "cline" ? <TerminalAgentHints /> : null}
+					{selectedAgentId && !isNativeClineAgentSelected(selectedAgentId) ? <TerminalAgentHints /> : null}
 					<div className="flex flex-1 min-h-0 overflow-hidden bg-surface-1 px-2 pb-2 pt-1">
 						{agentSectionContent ?? (
 							<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-center text-sm text-text-secondary">

@@ -48,6 +48,8 @@ export async function saveRuntimeConfig(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		modrevProviderId?: string | null;
+		modrevModelId?: string | null;
 	},
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
@@ -95,6 +97,7 @@ export async function addClineProvider(
 		defaultModelId?: string | null;
 		modelsSourceUrl?: string | null;
 		capabilities?: RuntimeClineProviderCapability[];
+		setLastUsed?: boolean;
 	},
 ): Promise<RuntimeClineAddProviderResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
@@ -118,6 +121,14 @@ export async function updateClineProvider(
 ): Promise<RuntimeClineUpdateProviderResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.updateClineProvider.mutate(input);
+}
+
+export async function deleteClineProvider(
+	workspaceId: string | null,
+	input: { providerId: string },
+): Promise<RuntimeClineProviderSettings> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.deleteClineProvider.mutate(input);
 }
 
 export async function fetchClineProviderCatalog(
