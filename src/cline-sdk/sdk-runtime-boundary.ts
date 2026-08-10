@@ -14,6 +14,7 @@ import {
 	formatRulesForSystemPrompt,
 	getClineDefaultSystemPrompt,
 	isRuleEnabled,
+	Llms,
 	type MessageWithMetadata,
 	type RuleConfig,
 	resolveClineDataDir,
@@ -55,6 +56,17 @@ export async function createClineSdkSessionHost(): Promise<ClineSdkSessionHost> 
 		backendMode: "auto",
 		telemetry: getCliTelemetryService(),
 	});
+}
+
+// Returns true when the provider id is a built-in SDK provider (anthropic,
+// openai, cline, etc.). Custom providers (e.g. Modrev models) are not built in
+// and must be routed through the generic OpenAI-compatible provider at launch.
+export function isBuiltInSdkProviderId(providerId: string): boolean {
+	try {
+		return Llms.isBuiltInProviderId(Llms.normalizeProviderId(providerId));
+	} catch {
+		return false;
+	}
 }
 
 export function resolveClineSdkDataDir(): string {
