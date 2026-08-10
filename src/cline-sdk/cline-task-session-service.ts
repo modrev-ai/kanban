@@ -915,7 +915,20 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 	}
 
 	private async ensureRuntimeSetup(workspacePath: string): Promise<ClineRuntimeSetup> {
-		const lease = await this.watcherRegistry.acquire(workspacePath);
+		// Hold onto the acquired lease per workspace so `dispose()` can release it
+		// (and let the ref-counted watcher registry tear the setup down). Reusing
+		// the cached lease also keeps this service to a single ref per workspace.
+		let leasePromise = this.runtimeSetupLeaseByWorkspacePath.get(workspacePath);
+		if (!leasePromise) {
+			leasePromise = this.watcherRegistry.acquire(workspacePath).catch((error) => {
+				if (this.runtimeSetupLeaseByWorkspacePath.get(workspacePath) === leasePromise) {
+					this.runtimeSetupLeaseByWorkspacePath.delete(workspacePath);
+				}
+				throw error;
+			});
+			this.runtimeSetupLeaseByWorkspacePath.set(workspacePath, leasePromise);
+		}
+		const lease = await leasePromise;
 		return lease.setup;
 	}
 }
