@@ -1437,6 +1437,10 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	droid: droidAdapter,
 	kiro: kiroAdapter,
 	cline: clineAdapter,
+	// Modrev is a native agent routed through the Cline SDK runtime, so it is
+	// never launched via this external-CLI adapter path. Reuse the Cline adapter
+	// only to satisfy the exhaustive RuntimeAgentId record.
+	modrev: clineAdapter,
 };
 
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {

@@ -14,6 +14,7 @@ import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateRuntimeConfig } from "../config/runtime-config";
+import { isNativeClineRuntimeAgent } from "../core/agent-catalog";
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
@@ -22,6 +23,7 @@ import type {
 import {
 	parseClineAccountSwitchRequest,
 	parseClineAddProviderRequest,
+	parseClineDeleteProviderRequest,
 	parseClineDeviceAuthCompleteRequest,
 	parseClineMcpOAuthRequest,
 	parseClineMcpSettingsSaveRequest,
@@ -49,6 +51,22 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
+
+// The Modrev agent tracks its active model independently of the SDK's "last
+// used" Cline provider, so native launches for Modrev must resolve their
+// provider/model from the Kanban-owned Modrev config.
+function resolveNativeAgentLaunchOverrides(config: RuntimeConfigState): {
+	providerIdOverride?: string;
+	modelIdOverride?: string;
+} {
+	if (config.selectedAgentId !== "modrev") {
+		return {};
+	}
+	return {
+		...(config.modrevProviderId ? { providerIdOverride: config.modrevProviderId } : {}),
+		...(config.modrevModelId ? { modelIdOverride: config.modrevModelId } : {}),
+	};
+}
 
 export interface CreateRuntimeApiDependencies {
 	getActiveWorkspaceId: () => string | null;
@@ -126,9 +144,18 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		saveConfig: async (workspaceScope, input) => {
 			const parsed = parseRuntimeConfigSaveRequest(input);
+			// The API exposes retry settings as a nested `llmRetry` object; the
+			// config layer stores them as flat keys.
+			const { llmRetry, ...restConfig } = parsed;
+			const configUpdate = {
+				...restConfig,
+				...(llmRetry?.enabled !== undefined ? { llmRetryEnabled: llmRetry.enabled } : {}),
+				...(llmRetry?.delayMs !== undefined ? { llmRetryDelayMs: llmRetry.delayMs } : {}),
+				...(llmRetry?.maxAttempts !== undefined ? { llmRetryMaxAttempts: llmRetry.maxAttempts } : {}),
+			};
 			let nextRuntimeConfig: RuntimeConfigState;
 			if (workspaceScope) {
-				nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, parsed);
+				nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, configUpdate);
 			} else {
 				const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
 				if (!activeRuntimeConfig) {
@@ -137,7 +164,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						message: "No active runtime config is available.",
 					});
 				}
-				nextRuntimeConfig = await updateRuntimeConfig(null, parsed);
+				nextRuntimeConfig = await updateRuntimeConfig(null, configUpdate);
 			}
 			if (workspaceScope && workspaceScope.workspaceId === deps.getActiveWorkspaceId()) {
 				deps.setActiveRuntimeConfig(nextRuntimeConfig);
@@ -162,6 +189,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		updateClineProvider: async (_workspaceScope, input) => {
 			const body = parseClineUpdateProviderRequest(input);
 			const response = await clineProviderService.updateCustomProvider(body);
+			deps.bumpClineSessionContextVersion?.();
+			return response;
+		},
+		deleteClineProvider: async (_workspaceScope, input) => {
+			const body = parseClineDeleteProviderRequest(input);
+			const response = await clineProviderService.deleteCustomProvider(body);
 			deps.bumpClineSessionContextVersion?.();
 			return response;
 		},
@@ -200,7 +233,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
 				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
-				let useClinePath = effectiveAgentId === "cline";
+				let useClinePath = isNativeClineRuntimeAgent(effectiveAgentId);
 				const shouldProbePersistedClineSession =
 					body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;
 				if (shouldProbePersistedClineSession) {
@@ -218,9 +251,20 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 
 				if (useClinePath) {
 					const hasTaskLevelClineSettingsOverride = body.clineSettings !== undefined;
+					// The Modrev agent tracks its active model separately from the
+					// SDK's "last used" Cline provider, so resolve its launch config
+					// from the Kanban-owned Modrev selection when the task has no
+					// explicit per-task provider override.
+					const isModrevLaunch = effectiveAgentId === "modrev";
+					const providerIdOverride =
+						body.clineSettings?.providerId ??
+						(isModrevLaunch ? (scopedRuntimeConfig.modrevProviderId ?? undefined) : undefined);
+					const modelIdOverride =
+						body.clineSettings?.modelId ??
+						(isModrevLaunch ? (scopedRuntimeConfig.modrevModelId ?? undefined) : undefined);
 					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig({
-						providerIdOverride: body.clineSettings?.providerId ?? undefined,
-						modelIdOverride: body.clineSettings?.modelId ?? undefined,
+						providerIdOverride,
+						modelIdOverride,
 						...(hasTaskLevelClineSettingsOverride
 							? {
 									reasoningEffortOverride: body.clineSettings?.reasoningEffort ?? null,
@@ -424,7 +468,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
 				let summary = await clineTaskSessionService.reloadTaskSession(body.taskId);
 				if (!summary && isHomeAgentSessionId(body.taskId)) {
-					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+					const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+						resolveNativeAgentLaunchOverrides(scopedRuntimeConfig),
+					);
 					summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: workspaceScope.workspacePath,
@@ -625,7 +672,10 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 							};
 						}
 					} else {
-						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+						const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
+							resolveNativeAgentLaunchOverrides(scopedRuntimeConfig),
+						);
 						summary = await clineTaskSessionService.startTaskSession({
 							taskId: body.taskId,
 							cwd: workspaceScope.workspacePath,

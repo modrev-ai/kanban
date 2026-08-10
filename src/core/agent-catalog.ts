@@ -35,6 +35,18 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		installUrl: "https://github.com/cline/cline",
 	},
 	{
+		// Modrev is a native, in-app-authenticated agent. It reuses the Cline
+		// runtime but is pinned to a custom OpenAI-compatible "modrev" provider
+		// configured with an API key, base URL, and model ID in Settings. It is
+		// never launched as an external CLI, so it has no binary.
+		id: "modrev",
+		label: "Modrev",
+		binary: "",
+		baseArgs: [],
+		autonomousArgs: [],
+		installUrl: "",
+	},
+	{
 		id: "opencode",
 		label: "OpenCode",
 		binary: "opencode",
@@ -72,6 +84,7 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 // Re-enable additional CLIs by uncommenting entries below when ready.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"cline",
+	"modrev",
 	"claude",
 	"codex",
 	"droid",
@@ -84,6 +97,18 @@ const RUNTIME_LAUNCH_SUPPORTED_AGENT_ID_SET = new Set<RuntimeAgentId>(RUNTIME_LA
 
 export function isRuntimeAgentLaunchSupported(agentId: RuntimeAgentId): boolean {
 	return RUNTIME_LAUNCH_SUPPORTED_AGENT_ID_SET.has(agentId);
+}
+
+// Native, in-app-authenticated agents that run through the Cline SDK runtime
+// rather than launching an external CLI binary. They are always considered
+// "installed" and their auth is configured in-app (provider settings) instead
+// of via a command-line tool on PATH.
+export const RUNTIME_NATIVE_CLINE_AGENT_IDS: readonly RuntimeAgentId[] = ["cline", "modrev"];
+
+const RUNTIME_NATIVE_CLINE_AGENT_ID_SET = new Set<RuntimeAgentId>(RUNTIME_NATIVE_CLINE_AGENT_IDS);
+
+export function isNativeClineRuntimeAgent(agentId: RuntimeAgentId | null | undefined): boolean {
+	return agentId != null && RUNTIME_NATIVE_CLINE_AGENT_ID_SET.has(agentId);
 }
 
 export function getRuntimeLaunchSupportedAgentCatalog(): RuntimeAgentCatalogEntry[] {

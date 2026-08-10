@@ -20,11 +20,27 @@ import {
 	type ClineSdkToolApprovalResult,
 	type ClineSdkUserInstructionService,
 	createClineSdkSessionHost,
+	isBuiltInSdkProviderId,
 } from "./sdk-runtime-boundary";
 
 export { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
 
 const DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES = 6;
+// The SDK runtime gateway only registers built-in providers and merely
+// *configures* them at session start (it never registers custom ones), so a
+// custom provider id resolves as "Unknown or disabled provider". Custom
+// OpenAI-compatible endpoints (e.g. Modrev models) are therefore launched
+// through this built-in generic OpenAI-compatible proxy provider, configured
+// with the model's own base URL, API key, and model id.
+//
+// It must be a provider that talks the OpenAI *chat-completions* API, not the
+// Responses API: Responses-based built-ins (litellm, openai-native) serialize
+// assistant turns as Responses `input` items, which a plain chat-completions
+// endpoint rejects with "data did not match any variant of untagged enum
+// InputParam" the moment the conversation contains a prior assistant message
+// (i.e. every turn after the first). openrouter uses chat-completions and
+// preserves multi-turn history correctly.
+const GENERIC_OPENAI_COMPATIBLE_PROVIDER_ID = "openrouter";
 
 interface ClineSessionHostBoundary {
 	start(input: ClineSdkStartSessionInput): Promise<{ sessionId: string; result?: unknown }>;
@@ -204,10 +220,14 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 		let startResult: Awaited<ReturnType<ClineSessionHostBoundary["start"]>>;
 		try {
 			// Hub-backed SDK hosts create the interactive session in start; the first turn runs through send.
+			// Custom (non-built-in) providers are launched through the generic
+			// OpenAI-compatible proxy provider (see GENERIC_OPENAI_COMPATIBLE_PROVIDER_ID).
+			const isCustomProvider = !isBuiltInSdkProviderId(request.providerId);
+			const effectiveProviderId = isCustomProvider ? GENERIC_OPENAI_COMPATIBLE_PROVIDER_ID : request.providerId;
 			startResult = await sessionHost.start({
 				config: {
 					sessionId: requestedSessionId,
-					providerId: request.providerId,
+					providerId: effectiveProviderId,
 					modelId: request.modelId,
 					apiKey: request.apiKey?.trim() || undefined,
 					baseUrl: request.baseUrl?.trim() || undefined,

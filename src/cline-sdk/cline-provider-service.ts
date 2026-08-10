@@ -26,6 +26,7 @@ import {
 	addSdkCustomProvider,
 	completeClineDeviceAuth as completeSdkDeviceAuth,
 	deleteSdkCustomProvider,
+	ensureSdkCustomProvidersLoaded,
 	fetchSdkClineAccountBalance,
 	fetchSdkClineAccountProfile,
 	fetchSdkClineUserRemoteConfig,
@@ -90,6 +91,10 @@ export interface AddCustomClineProviderInput {
 	defaultModelId?: string | null;
 	modelsSourceUrl?: string | null;
 	capabilities?: SdkCustomProviderCapability[];
+	// Defaults to true. When false, the provider is registered without becoming
+	// the SDK's "last used" provider (used by Modrev to stay independent of the
+	// Cline agent's active provider).
+	setLastUsed?: boolean;
 }
 
 export interface UpdateCustomClineProviderInput {
@@ -784,6 +789,10 @@ export function createClineProviderService() {
 			modelIdOverride?: string;
 			reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
 		}): Promise<ResolvedClineLaunchConfig> {
+			// Make sure locally-registered custom providers (e.g. Modrev models)
+			// are loaded into the SDK registry before a launch resolves against
+			// them; otherwise a fresh runtime rejects them as unknown providers.
+			await ensureSdkCustomProvidersLoaded().catch(() => {});
 			const selectedSettings = overrides?.providerIdOverride
 				? (getSdkProviderSettings(overrides.providerIdOverride) ?? getSelectedProviderSettings())
 				: getSelectedProviderSettings();
@@ -933,7 +942,7 @@ export function createClineProviderService() {
 			saveSdkProviderSettings({
 				settings: existingSettings,
 				tokenSource: hasOauthAccessToken(existingSettings) ? "oauth" : "manual",
-				setLastUsed: true,
+				setLastUsed: input.setLastUsed ?? true,
 			});
 
 			return toProviderSettingsSummary(getSdkProviderSettings(providerId));

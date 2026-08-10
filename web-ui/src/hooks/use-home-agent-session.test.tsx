@@ -112,8 +112,11 @@ function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): Ru
 		},
 		commitPromptTemplate: "commit",
 		openPrPromptTemplate: "pr",
+		modrevProviderId: null,
+		modrevModelId: null,
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		llmRetry: { enabled: true, delayMs: 15000, maxAttempts: 20 },
 		...overrides,
 	};
 }

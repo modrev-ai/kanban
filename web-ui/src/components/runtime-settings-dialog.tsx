@@ -5,7 +5,11 @@ import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as RadixPopover from "@radix-ui/react-popover";
 import * as RadixSelect from "@radix-ui/react-select";
 import * as RadixSwitch from "@radix-ui/react-switch";
-import { getRuntimeAgentCatalogEntry, getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
+import {
+	getRuntimeAgentCatalogEntry,
+	getRuntimeLaunchSupportedAgentCatalog,
+	isNativeClineRuntimeAgent,
+} from "@runtime-agent-catalog";
 import { areRuntimeProjectShortcutsEqual } from "@runtime-shortcuts";
 import {
 	Bell,
@@ -26,6 +30,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
+import { ModrevSetupSection } from "@/components/shared/modrev-setup-section";
 import {
 	getRuntimeShortcutIconComponent,
 	getRuntimeShortcutPickerOption,
@@ -40,6 +45,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
+import { useRuntimeSettingsModrevController } from "@/hooks/use-runtime-settings-modrev-controller";
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
 import { useLayoutCustomizations } from "@/resize/layout-customizations";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
@@ -74,7 +80,7 @@ function quoteCommandPartForDisplay(part: string): string {
 }
 
 function buildDisplayedAgentCommand(agentId: RuntimeAgentId, binary: string, autonomousModeEnabled: boolean): string {
-	if (agentId === "cline") {
+	if (isNativeClineRuntimeAgent(agentId)) {
 		return "";
 	}
 	const args = autonomousModeEnabled ? (getRuntimeAgentCatalogEntry(agentId)?.autonomousArgs ?? []) : [];
@@ -92,18 +98,19 @@ const GIT_PROMPT_VARIANT_OPTIONS: Array<{ value: TaskGitAction; label: string }>
 
 export type RuntimeSettingsSection = "shortcuts";
 
-const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid", "kiro"];
+const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "modrev", "claude", "codex", "droid", "kiro"];
 
-type SettingsNavId = "general" | "cline" | "git-prompts" | "notifications" | "appearance" | "project";
+type SettingsNavId = "general" | "cline" | "modrev" | "git-prompts" | "notifications" | "appearance" | "project";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
 	label: string;
 	icon: React.ReactNode;
-	clineOnly?: boolean;
+	agentOnly?: RuntimeAgentId;
 }> = [
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
-	{ id: "cline", label: "Cline", icon: <Bot size={16} />, clineOnly: true },
+	{ id: "cline", label: "Cline", icon: <Bot size={16} />, agentOnly: "cline" },
+	{ id: "modrev", label: "Modrev", icon: <Bot size={16} />, agentOnly: "modrev" },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
@@ -154,7 +161,7 @@ function AgentRow({
 	disabled: boolean;
 }): React.ReactElement {
 	const installUrl = getRuntimeAgentCatalogEntry(agent.id)?.installUrl;
-	const isNativeCline = agent.id === "cline";
+	const isNativeCline = isNativeClineRuntimeAgent(agent.id);
 	const isInstalled = agent.installed === true;
 	const isInstallStatusPending = !isNativeCline && agent.installed === null;
 
@@ -412,13 +419,13 @@ export function RuntimeSettingsDialog({
 				id: agent.id,
 				label: agent.label,
 				binary: agent.binary,
-				installed: agent.id === "cline" ? true : agent.installed,
+				installed: isNativeClineRuntimeAgent(agent.id) ? true : agent.installed,
 			})) ??
 			getRuntimeLaunchSupportedAgentCatalog().map((agent) => ({
 				id: agent.id,
 				label: agent.label,
 				binary: agent.binary,
-				installed: agent.id === "cline" ? true : null,
+				installed: isNativeClineRuntimeAgent(agent.id) ? true : null,
 			}));
 		const orderIndexByAgentId = new Map(SETTINGS_AGENT_ORDER.map((agentId, index) => [agentId, index] as const));
 		const orderedAgents = [...agents].sort((left, right) => {
@@ -433,7 +440,7 @@ export function RuntimeSettingsDialog({
 	}, [agentAutonomousModeEnabled, config?.agents]);
 	const displayedAgents = useMemo(() => supportedAgents, [supportedAgents]);
 	const navItems = useMemo(
-		() => SETTINGS_NAV_ITEMS.filter((item) => !item.clineOnly || selectedAgentId === "cline"),
+		() => SETTINGS_NAV_ITEMS.filter((item) => item.agentOnly === undefined || item.agentOnly === selectedAgentId),
 		[selectedAgentId],
 	);
 	const configuredAgentId = config?.selectedAgentId ?? null;
@@ -457,6 +464,12 @@ export function RuntimeSettingsDialog({
 		selectedAgentId,
 		liveAuthStatuses: liveMcpAuthStatuses,
 	});
+	const modrevSettings = useRuntimeSettingsModrevController({
+		open,
+		workspaceId,
+		selectedAgentId,
+		config,
+	});
 	const hasUnsavedChanges = useMemo(() => {
 		if (!config) {
 			return false;
@@ -474,6 +487,9 @@ export function RuntimeSettingsDialog({
 			return true;
 		}
 		if (clineMcpSettings.hasUnsavedChanges) {
+			return true;
+		}
+		if (modrevSettings.hasUnsavedChanges) {
 			return true;
 		}
 		if (draftThemeId !== initialThemeId) {
@@ -496,6 +512,7 @@ export function RuntimeSettingsDialog({
 		agentAutonomousModeEnabled,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
+		modrevSettings.hasUnsavedChanges,
 		commitPromptTemplate,
 		config,
 		draftThemeId,
@@ -589,7 +606,8 @@ export function RuntimeSettingsDialog({
 	});
 
 	useEffect(() => {
-		if (activeSection === "cline" && selectedAgentId !== "cline") {
+		const activeNavItem = SETTINGS_NAV_ITEMS.find((item) => item.id === activeSection);
+		if (activeNavItem?.agentOnly !== undefined && activeNavItem.agentOnly !== selectedAgentId) {
 			setActiveSection("general");
 		}
 	}, [activeSection, selectedAgentId]);
@@ -694,6 +712,13 @@ export function RuntimeSettingsDialog({
 			const clineMcpSaveResult = await clineMcpSettings.saveMcpSettings();
 			if (!clineMcpSaveResult.ok) {
 				setSaveError(clineMcpSaveResult.message ?? "Could not save Cline MCP settings.");
+				return;
+			}
+		}
+		if (selectedAgentId === "modrev") {
+			const modrevSaveResult = await modrevSettings.saveModrevSettings();
+			if (!modrevSaveResult.ok) {
+				setSaveError(modrevSaveResult.message ?? "Could not save Modrev settings.");
 				return;
 			}
 		}
@@ -839,6 +864,28 @@ export function RuntimeSettingsDialog({
 											/>
 										) : null
 									}
+									onError={setSaveError}
+									onSaved={handleClineSetupSaved}
+								/>
+							</div>
+						</>
+					) : null}
+
+					{/* ---- Modrev ---- */}
+					{selectedAgentId === "modrev" ? (
+						<>
+							<div data-settings-section="modrev" />
+							<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+								<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+									<Bot size={16} className="text-text-secondary" />
+									Modrev
+								</h2>
+							</div>
+							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+								<ModrevSetupSection
+									controller={modrevSettings}
+									controlsDisabled={controlsDisabled}
+									workspaceId={workspaceId}
 									onError={setSaveError}
 									onSaved={handleClineSetupSaved}
 								/>
