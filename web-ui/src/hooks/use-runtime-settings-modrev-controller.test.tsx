@@ -14,14 +14,14 @@ const fetchClineProviderCatalogMock = vi.hoisted(() => vi.fn());
 const addClineProviderMock = vi.hoisted(() => vi.fn());
 const updateClineProviderMock = vi.hoisted(() => vi.fn());
 const deleteClineProviderMock = vi.hoisted(() => vi.fn());
-const saveClineProviderSettingsMock = vi.hoisted(() => vi.fn());
+const saveRuntimeConfigMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/runtime/runtime-config-query", () => ({
 	fetchClineProviderCatalog: fetchClineProviderCatalogMock,
 	addClineProvider: addClineProviderMock,
 	updateClineProvider: updateClineProviderMock,
 	deleteClineProvider: deleteClineProviderMock,
-	saveClineProviderSettings: saveClineProviderSettingsMock,
+	saveRuntimeConfig: saveRuntimeConfigMock,
 }));
 
 interface HookSnapshot {
@@ -69,8 +69,13 @@ function makeProviderSettings(overrides: Partial<RuntimeClineProviderSettings> =
 	};
 }
 
-function makeConfig(providerSettings: RuntimeClineProviderSettings): RuntimeConfigResponse {
-	return { clineProviderSettings: providerSettings } as unknown as RuntimeConfigResponse;
+function makeConfig(overrides: Partial<RuntimeConfigResponse> = {}): RuntimeConfigResponse {
+	return {
+		clineProviderSettings: makeProviderSettings(),
+		modrevProviderId: null,
+		modrevModelId: null,
+		...overrides,
+	} as unknown as RuntimeConfigResponse;
 }
 
 function makeCatalogItem(overrides: Partial<RuntimeClineProviderCatalogItem> = {}): RuntimeClineProviderCatalogItem {
@@ -127,13 +132,13 @@ describe("useRuntimeSettingsModrevController", () => {
 		fetchClineProviderCatalogMock.mockReset();
 		addClineProviderMock.mockReset();
 		updateClineProviderMock.mockReset();
-		saveClineProviderSettingsMock.mockReset();
+		saveRuntimeConfigMock.mockReset();
 		deleteClineProviderMock.mockReset();
 		fetchClineProviderCatalogMock.mockResolvedValue([]);
 		addClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
 		updateClineProviderMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
 		deleteClineProviderMock.mockResolvedValue(makeProviderSettings());
-		saveClineProviderSettingsMock.mockResolvedValue(makeProviderSettings({ providerId: "modrev-a" }));
+		saveRuntimeConfigMock.mockResolvedValue(makeConfig());
 
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
@@ -163,7 +168,7 @@ describe("useRuntimeSettingsModrevController", () => {
 			makeCatalogItem({ id: "anthropic", name: "Anthropic" }),
 			makeCatalogItem({ id: "modrev", name: "Modrev Legacy" }),
 		]);
-		const config = makeConfig(makeProviderSettings({ providerId: "modrev-a" }));
+		const config = makeConfig({ modrevProviderId: "modrev-a", modrevModelId: "model-a" });
 
 		await act(async () => {
 			root.render(
@@ -188,7 +193,7 @@ describe("useRuntimeSettingsModrevController", () => {
 		await act(async () => {
 			root.render(
 				<HookHarness
-					config={makeConfig(makeProviderSettings())}
+					config={makeConfig()}
 					onSnapshot={(snapshot) => {
 						latestSnapshot = snapshot;
 					}}
@@ -211,6 +216,7 @@ describe("useRuntimeSettingsModrevController", () => {
 		});
 
 		expect(result.ok).toBe(true);
+		// Registered without hijacking the Cline agent's active provider.
 		expect(addClineProviderMock).toHaveBeenCalledWith("workspace-1", {
 			providerId: "modrev-gpt-oss",
 			name: "GPT OSS",
@@ -218,12 +224,12 @@ describe("useRuntimeSettingsModrevController", () => {
 			apiKey: "secret",
 			models: ["gpt-oss-120b"],
 			defaultModelId: "gpt-oss-120b",
+			setLastUsed: false,
 		});
-		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "modrev-gpt-oss",
-			modelId: "gpt-oss-120b",
-			baseUrl: "https://api.modrev.ai/v1",
-			apiKey: "secret",
+		// Active model persisted to Kanban's independent Modrev config.
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith("workspace-1", {
+			modrevProviderId: "modrev-gpt-oss",
+			modrevModelId: "gpt-oss-120b",
 		});
 		expect(requireSnapshot(latestSnapshot).activeProviderId).toBe("modrev-gpt-oss");
 	});
@@ -242,7 +248,7 @@ describe("useRuntimeSettingsModrevController", () => {
 		await act(async () => {
 			root.render(
 				<HookHarness
-					config={makeConfig(makeProviderSettings({ providerId: "modrev-a" }))}
+					config={makeConfig({ modrevProviderId: "modrev-a", modrevModelId: "model-a" })}
 					onSnapshot={(snapshot) => {
 						latestSnapshot = snapshot;
 					}}
@@ -256,10 +262,9 @@ describe("useRuntimeSettingsModrevController", () => {
 			await flushAsyncWork();
 		});
 
-		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "modrev-b",
-			modelId: "model-b",
-			baseUrl: "https://b.modrev.ai/v1",
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith("workspace-1", {
+			modrevProviderId: "modrev-b",
+			modrevModelId: "model-b",
 		});
 		expect(requireSnapshot(latestSnapshot).activeProviderId).toBe("modrev-b");
 	});
@@ -269,7 +274,7 @@ describe("useRuntimeSettingsModrevController", () => {
 		await act(async () => {
 			root.render(
 				<HookHarness
-					config={makeConfig(makeProviderSettings())}
+					config={makeConfig()}
 					onSnapshot={(snapshot) => {
 						latestSnapshot = snapshot;
 					}}
@@ -299,7 +304,7 @@ describe("useRuntimeSettingsModrevController", () => {
 		await act(async () => {
 			root.render(
 				<HookHarness
-					config={makeConfig(makeProviderSettings({ providerId: "modrev-a" }))}
+					config={makeConfig({ modrevProviderId: "modrev-a", modrevModelId: "model-a" })}
 					onSnapshot={(snapshot) => {
 						latestSnapshot = snapshot;
 					}}
@@ -316,6 +321,11 @@ describe("useRuntimeSettingsModrevController", () => {
 
 		expect(result.ok).toBe(true);
 		expect(deleteClineProviderMock).toHaveBeenCalledWith("workspace-1", { providerId: "modrev-a" });
+		// The surviving model is promoted to active in Kanban's Modrev config.
+		expect(saveRuntimeConfigMock).toHaveBeenCalledWith("workspace-1", {
+			modrevProviderId: "modrev-b",
+			modrevModelId: "model-b",
+		});
 		expect(requireSnapshot(latestSnapshot).models.map((model) => model.providerId)).toEqual(["modrev-b"]);
 		expect(requireSnapshot(latestSnapshot).activeProviderId).toBe("modrev-b");
 	});

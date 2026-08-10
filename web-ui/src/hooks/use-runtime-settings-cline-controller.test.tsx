@@ -103,6 +103,8 @@ function createRuntimeConfigResponse(
 		},
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
+		modrevProviderId: null,
+		modrevModelId: null,
 		commitPromptTemplateDefault: "",
 		openPrPromptTemplateDefault: "",
 	};

@@ -13,7 +13,7 @@ import {
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
-import { isModrevModelProviderId } from "@/hooks/use-runtime-settings-modrev-controller";
+import { isModrevModelProviderId } from "@/runtime/modrev-provider";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
 import type {

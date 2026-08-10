@@ -112,6 +112,8 @@ function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): Ru
 		},
 		commitPromptTemplate: "commit",
 		openPrPromptTemplate: "pr",
+		modrevProviderId: null,
+		modrevModelId: null,
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
 		...overrides,

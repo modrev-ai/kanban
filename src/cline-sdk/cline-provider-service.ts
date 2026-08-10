@@ -90,6 +90,10 @@ export interface AddCustomClineProviderInput {
 	defaultModelId?: string | null;
 	modelsSourceUrl?: string | null;
 	capabilities?: SdkCustomProviderCapability[];
+	// Defaults to true. When false, the provider is registered without becoming
+	// the SDK's "last used" provider (used by Modrev to stay independent of the
+	// Cline agent's active provider).
+	setLastUsed?: boolean;
 }
 
 export interface UpdateCustomClineProviderInput {
@@ -933,7 +937,7 @@ export function createClineProviderService() {
 			saveSdkProviderSettings({
 				settings: existingSettings,
 				tokenSource: hasOauthAccessToken(existingSettings) ? "oauth" : "manual",
-				setLastUsed: true,
+				setLastUsed: input.setLastUsed ?? true,
 			});
 
 			return toProviderSettingsSummary(getSdkProviderSettings(providerId));

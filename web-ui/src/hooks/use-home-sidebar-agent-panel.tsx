@@ -13,12 +13,14 @@ import { useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actio
 import { useHomeAgentSession } from "@/hooks/use-home-agent-session";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isNativeClineAgentSelected, selectLatestTaskChatMessageForTask } from "@/runtime/native-agent";
+import { saveRuntimeConfig } from "@/runtime/runtime-config-query";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeConfigResponse,
 	RuntimeGitRepositoryInfo,
 	RuntimeStateStreamTaskChatMessage,
 	RuntimeTaskChatMessage,
+	RuntimeTaskClineSettings,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
@@ -152,6 +154,30 @@ export function useHomeSidebarAgentPanel({
 	}
 
 	if (panelMode === "chat" && taskId) {
+		// The Modrev agent tracks its active model independently of the Cline
+		// provider selection, so seed the picker from Modrev config and persist
+		// changes back there instead of the shared Cline provider settings.
+		const isModrevHomeAgent = runtimeProjectConfig?.selectedAgentId === "modrev";
+		const modrevTaskClineSettings: RuntimeTaskClineSettings | undefined =
+			isModrevHomeAgent && runtimeProjectConfig?.modrevProviderId
+				? {
+						providerId: runtimeProjectConfig.modrevProviderId,
+						...(runtimeProjectConfig.modrevModelId ? { modelId: runtimeProjectConfig.modrevModelId } : {}),
+					}
+				: undefined;
+		const handleModrevHomeModelChange = (settings: {
+			providerId: string;
+			modelId: string;
+			reasoningEffort: string;
+		}) => {
+			if (!isModrevHomeAgent) {
+				return;
+			}
+			void saveRuntimeConfig(currentProjectId, {
+				modrevProviderId: settings.providerId || null,
+				modrevModelId: settings.modelId || null,
+			});
+		};
 		return (
 			<ClineAgentChatPanel
 				key={taskId}
@@ -161,6 +187,9 @@ export function useHomeSidebarAgentPanel({
 				showComposerModeToggle={false}
 				workspaceId={currentProjectId}
 				runtimeConfig={runtimeProjectConfig}
+				taskClineSettings={modrevTaskClineSettings}
+				taskHasExplicitClineSettings={isModrevHomeAgent}
+				onTaskClineSettingsChanged={isModrevHomeAgent ? handleModrevHomeModelChange : undefined}
 				onSendMessage={handleSendHomeClineChatMessage}
 				onCancelTurn={handleCancelHomeClineChatTurn}
 				onLoadMessages={handleLoadHomeClineChatMessages}

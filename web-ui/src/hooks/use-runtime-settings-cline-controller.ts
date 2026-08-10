@@ -2,6 +2,7 @@
 // It loads provider data, drives model selection, saves settings, and runs
 // OAuth login flows so the dialog component can stay presentation-focused.
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isModrevModelProviderId } from "@/runtime/modrev-provider";
 import { getRuntimeClineProviderSettings } from "@/runtime/native-agent";
 import {
 	addClineProvider,
@@ -73,6 +74,7 @@ export interface AddClineProviderInput {
 	defaultModelId?: string | null;
 	modelsSourceUrl?: string | null;
 	capabilities?: RuntimeClineProviderCapability[];
+	setLastUsed?: boolean;
 }
 
 export interface UpdateClineProviderInput {
@@ -402,8 +404,11 @@ export function useRuntimeSettingsClineController(
 		if (providerId.trim().length > 0) {
 			return;
 		}
+		// Never auto-select a Modrev model for the Cline agent; those are managed
+		// separately under the Modrev agent.
+		const clineProviders = providerCatalog.filter((provider) => !isModrevModelProviderId(provider.id));
 		const defaultProvider =
-			providerCatalog.find((provider) => provider.id.trim().toLowerCase() === "cline") ?? providerCatalog[0] ?? null;
+			clineProviders.find((provider) => provider.id.trim().toLowerCase() === "cline") ?? clineProviders[0] ?? null;
 		if (!defaultProvider) {
 			return;
 		}

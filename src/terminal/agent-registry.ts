@@ -127,6 +127,8 @@ export function buildRuntimeConfigResponse(
 		agents,
 		shortcuts: runtimeConfig.shortcuts,
 		clineProviderSettings,
+		modrevProviderId: runtimeConfig.modrevProviderId,
+		modrevModelId: runtimeConfig.modrevModelId,
 		commitPromptTemplate: runtimeConfig.commitPromptTemplate,
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
 		commitPromptTemplateDefault: runtimeConfig.commitPromptTemplateDefault,

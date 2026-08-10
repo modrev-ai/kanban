@@ -1,28 +1,27 @@
 // Owns the Modrev-specific settings state inside the settings dialog.
 //
 // Modrev is a native, in-app-authenticated agent that reuses the Cline SDK
-// runtime. Instead of a single pinned provider, Modrev exposes a list of custom
-// "models" — each one a full OpenAI-compatible provider (name, base URL, API
-// key, model source URL, models, capabilities, timeout) registered through the
-// same machinery as a Cline custom API provider. Modrev models are namespaced
-// by a "modrev-" provider-id prefix (the legacy exact id "modrev" is also
-// treated as a Modrev model) so they stay separate from the Cline agent's own
-// providers. The currently selected model is persisted as the active Cline
-// provider so task launches resolve their config from it.
+// runtime. Each Modrev "model" is a full OpenAI-compatible provider (name, base
+// URL, API key, model source URL, models, capabilities, timeout) registered
+// through the same machinery as a Cline custom API provider, namespaced by a
+// "modrev-" provider-id prefix.
+//
+// Crucially, Modrev's active model is tracked in Kanban's own config
+// (modrevProviderId / modrevModelId), independently of the SDK-owned "last
+// used" Cline provider. Registering or selecting a Modrev model never changes
+// the Cline agent's active provider, so the two native agents operate
+// independently.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AddClineProviderInput, UpdateClineProviderInput } from "@/hooks/use-runtime-settings-cline-controller";
-import { getRuntimeClineProviderSettings } from "@/runtime/native-agent";
+import { ensureModrevProviderId, isModrevModelProviderId } from "@/runtime/modrev-provider";
 import {
 	addClineProvider,
 	deleteClineProvider,
 	fetchClineProviderCatalog,
-	saveClineProviderSettings,
+	saveRuntimeConfig,
 	updateClineProvider,
 } from "@/runtime/runtime-config-query";
 import type { RuntimeAgentId, RuntimeClineProviderCatalogItem, RuntimeConfigResponse } from "@/runtime/types";
-
-export const MODREV_PROVIDER_ID_PREFIX = "modrev-";
-export const MODREV_LEGACY_PROVIDER_ID = "modrev";
 
 export interface ModrevModel {
 	providerId: string;
@@ -57,21 +56,6 @@ export interface UseRuntimeSettingsModrevControllerResult {
 	saveModrevSettings: () => Promise<SaveResult>;
 }
 
-export function isModrevModelProviderId(providerId: string | null | undefined): boolean {
-	const normalized = providerId?.trim().toLowerCase() ?? "";
-	return normalized === MODREV_LEGACY_PROVIDER_ID || normalized.startsWith(MODREV_PROVIDER_ID_PREFIX);
-}
-
-// Normalizes a user-entered provider id into the Modrev namespace so every
-// registered model is discoverable via the prefix filter.
-export function ensureModrevProviderId(providerId: string): string {
-	const normalized = providerId.trim().toLowerCase().replace(/\s+/g, "-");
-	if (isModrevModelProviderId(normalized)) {
-		return normalized;
-	}
-	return `${MODREV_PROVIDER_ID_PREFIX}${normalized}`;
-}
-
 function toModrevModel(item: RuntimeClineProviderCatalogItem): ModrevModel {
 	return {
 		providerId: item.id,
@@ -90,9 +74,8 @@ export function useRuntimeSettingsModrevController(
 	const [activeProviderId, setActiveProviderId] = useState("");
 	const catalogRequestIdRef = useRef(0);
 
-	const configProviderId = getRuntimeClineProviderSettings(config).providerId ?? "";
-	const configActiveModrevProviderId = isModrevModelProviderId(configProviderId)
-		? configProviderId.trim().toLowerCase()
+	const configActiveModrevProviderId = isModrevModelProviderId(config?.modrevProviderId)
+		? (config?.modrevProviderId?.trim().toLowerCase() ?? "")
 		: "";
 
 	const models = useMemo(
@@ -132,7 +115,7 @@ export function useRuntimeSettingsModrevController(
 		void loadModels();
 	}, [loadModels, open, selectedAgentId]);
 
-	// Seed the active selection from the persisted provider settings.
+	// Seed the active selection from the persisted Modrev config.
 	useEffect(() => {
 		if (!open) {
 			return;
@@ -140,12 +123,13 @@ export function useRuntimeSettingsModrevController(
 		setActiveProviderId(configActiveModrevProviderId);
 	}, [configActiveModrevProviderId, open]);
 
-	const persistActiveModel = useCallback(
-		async (model: ModrevModel): Promise<void> => {
-			await saveClineProviderSettings(workspaceId, {
-				providerId: model.providerId,
-				modelId: model.defaultModelId,
-				baseUrl: model.baseUrl,
+	// Persist the Modrev active model to Kanban config (not the shared Cline
+	// provider selection), keeping the two agents independent.
+	const persistActiveSelection = useCallback(
+		async (model: ModrevModel | null): Promise<void> => {
+			await saveRuntimeConfig(workspaceId, {
+				modrevProviderId: model?.providerId ?? null,
+				modrevModelId: model?.defaultModelId ?? null,
 			});
 		},
 		[workspaceId],
@@ -158,26 +142,28 @@ export function useRuntimeSettingsModrevController(
 				return { ok: false, message: "That Modrev model no longer exists." };
 			}
 			try {
-				await persistActiveModel(model);
+				await persistActiveSelection(model);
 				setActiveProviderId(model.providerId);
 				return { ok: true };
 			} catch (error) {
 				return { ok: false, message: error instanceof Error ? error.message : String(error) };
 			}
 		},
-		[models, persistActiveModel],
+		[models, persistActiveSelection],
 	);
 
 	const addModel = useCallback(
 		async (input: AddClineProviderInput): Promise<SaveResult> => {
 			const providerId = ensureModrevProviderId(input.providerId);
 			try {
-				await addClineProvider(workspaceId, { ...input, providerId });
-				await saveClineProviderSettings(workspaceId, {
+				// Register the provider without hijacking the Cline agent's active
+				// provider, then record it as Modrev's active model in Kanban config.
+				await addClineProvider(workspaceId, { ...input, providerId, setLastUsed: false });
+				await persistActiveSelection({
 					providerId,
-					modelId: input.defaultModelId?.trim() || input.models[0] || null,
+					name: input.name,
 					baseUrl: input.baseUrl,
-					...(input.apiKey ? { apiKey: input.apiKey } : {}),
+					defaultModelId: input.defaultModelId?.trim() || input.models[0] || null,
 				});
 				setActiveProviderId(providerId);
 				await loadModels();
@@ -186,7 +172,7 @@ export function useRuntimeSettingsModrevController(
 				return { ok: false, message: error instanceof Error ? error.message : String(error) };
 			}
 		},
-		[loadModels, workspaceId],
+		[loadModels, persistActiveSelection, workspaceId],
 	);
 
 	const updateModel = useCallback(
@@ -199,7 +185,7 @@ export function useRuntimeSettingsModrevController(
 					const nextCatalog = await fetchClineProviderCatalog(workspaceId);
 					const updated = nextCatalog.find((item) => item.id === providerId);
 					if (updated) {
-						await persistActiveModel(toModrevModel(updated));
+						await persistActiveSelection(toModrevModel(updated));
 					}
 				}
 				return { ok: true };
@@ -207,7 +193,7 @@ export function useRuntimeSettingsModrevController(
 				return { ok: false, message: error instanceof Error ? error.message : String(error) };
 			}
 		},
-		[activeProviderId, loadModels, persistActiveModel, workspaceId],
+		[activeProviderId, loadModels, persistActiveSelection, workspaceId],
 	);
 
 	const removeModel = useCallback(
@@ -221,24 +207,20 @@ export function useRuntimeSettingsModrevController(
 				// If the removed model was active, promote another Modrev model so
 				// launches keep resolving, or clear the selection when none remain.
 				if (normalizedProviderId === activeProviderId) {
-					const nextActive = nextCatalog.find((item) => isModrevModelProviderId(item.id));
-					if (nextActive) {
-						await persistActiveModel(toModrevModel(nextActive));
-						setActiveProviderId(nextActive.id);
-					} else {
-						setActiveProviderId("");
-					}
+					const nextActive = nextCatalog.find((item) => isModrevModelProviderId(item.id)) ?? null;
+					await persistActiveSelection(nextActive ? toModrevModel(nextActive) : null);
+					setActiveProviderId(nextActive?.id ?? "");
 				}
 				return { ok: true };
 			} catch (error) {
 				return { ok: false, message: error instanceof Error ? error.message : String(error) };
 			}
 		},
-		[activeProviderId, persistActiveModel, workspaceId],
+		[activeProviderId, persistActiveSelection, workspaceId],
 	);
 
-	// Modrev model changes persist immediately (add/edit/select each call the
-	// backend), so there is no local draft to fold into the dialog's Save.
+	// Modrev model changes persist immediately (add/edit/select/remove each call
+	// the backend), so there is no local draft to fold into the dialog's Save.
 	const hasUnsavedChanges = false;
 
 	const saveModrevSettings = useCallback(async (): Promise<SaveResult> => {

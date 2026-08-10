@@ -190,6 +190,8 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		modrevProviderId: null,
+		modrevModelId: null,
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
 	};

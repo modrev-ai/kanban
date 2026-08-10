@@ -21,6 +21,7 @@ import type {
 	UseRuntimeSettingsClineControllerResult,
 } from "@/hooks/use-runtime-settings-cline-controller";
 import type { UseRuntimeSettingsClineMcpControllerResult } from "@/hooks/use-runtime-settings-cline-mcp-controller";
+import { isModrevModelProviderId } from "@/runtime/modrev-provider";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import type { RuntimeClineMcpServer, RuntimeClineReasoningEffort } from "@/runtime/types";
 import { formatPathForDisplay } from "@/utils/path-display";
@@ -109,10 +110,14 @@ export function ClineSetupSection({
 	}, [copiedDeviceCodeState, controller.deviceAuthInfo?.userCode, onError]);
 
 	const clineProviderOptions = useMemo((): SearchSelectOption[] => {
-		const items: SearchSelectOption[] = controller.providerCatalog.map((provider) => ({
-			value: provider.id,
-			label: provider.name,
-		}));
+		// Modrev models are managed under the separate Modrev agent, so keep them
+		// out of the Cline provider list.
+		const items: SearchSelectOption[] = controller.providerCatalog
+			.filter((provider) => !isModrevModelProviderId(provider.id))
+			.map((provider) => ({
+				value: provider.id,
+				label: provider.name,
+			}));
 		const trimmedId = controller.providerId.trim();
 		if (
 			trimmedId.length > 0 &&

@@ -48,6 +48,8 @@ export async function saveRuntimeConfig(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		modrevProviderId?: string | null;
+		modrevModelId?: string | null;
 	},
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
@@ -95,6 +97,7 @@ export async function addClineProvider(
 		defaultModelId?: string | null;
 		modelsSourceUrl?: string | null;
 		capabilities?: RuntimeClineProviderCapability[];
+		setLastUsed?: boolean;
 	},
 ): Promise<RuntimeClineAddProviderResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);

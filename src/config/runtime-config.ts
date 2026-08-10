@@ -19,6 +19,10 @@ interface RuntimeGlobalConfigFileShape {
 	llmRetryMaxAttempts?: number;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	// Modrev's active model is tracked here (separate from the SDK-owned Cline
+	// "last used" provider) so the two native agents operate independently.
+	modrevProviderId?: string;
+	modrevModelId?: string;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -40,6 +44,8 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
+	modrevProviderId: string | null;
+	modrevModelId: string | null;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -53,6 +59,8 @@ export interface RuntimeConfigUpdateInput {
 	llmRetryEnabled?: boolean;
 	llmRetryDelayMs?: number;
 	llmRetryMaxAttempts?: number;
+	modrevProviderId?: string | null;
+	modrevModelId?: string | null;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -212,6 +220,22 @@ function normalizeShortcutLabel(value: unknown): string | null {
 	return normalized.length > 0 ? normalized : null;
 }
 
+function normalizeModrevProviderId(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const normalized = value.trim().toLowerCase();
+	return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeModrevValue(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const normalized = value.trim();
+	return normalized.length > 0 ? normalized : null;
+}
+
 function hasOwnKey<T extends object>(value: T | null, key: keyof T): boolean {
 	if (!value) {
 		return false;
@@ -313,6 +337,8 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		modrevProviderId: normalizeModrevProviderId(globalConfig?.modrevProviderId),
+		modrevModelId: normalizeModrevValue(globalConfig?.modrevModelId),
 	};
 }
 
@@ -337,6 +363,8 @@ async function writeRuntimeGlobalConfigFile(
 		llmRetryEnabled?: boolean;
 		llmRetryDelayMs?: number;
 		llmRetryMaxAttempts?: number;
+		modrevProviderId?: string | null;
+		modrevModelId?: string | null;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -419,6 +447,20 @@ async function writeRuntimeGlobalConfigFile(
 	}
 	if (hasOwnKey(existing, "llmRetryMaxAttempts") || llmRetryMaxAttempts !== DEFAULT_LLM_RETRY_MAX_ATTEMPTS) {
 		payload.llmRetryMaxAttempts = llmRetryMaxAttempts;
+	}
+	const modrevProviderId =
+		config.modrevProviderId === undefined
+			? normalizeModrevProviderId(existing?.modrevProviderId)
+			: normalizeModrevProviderId(config.modrevProviderId);
+	if (modrevProviderId) {
+		payload.modrevProviderId = modrevProviderId;
+	}
+	const modrevModelId =
+		config.modrevModelId === undefined
+			? normalizeModrevValue(existing?.modrevModelId)
+			: normalizeModrevValue(config.modrevModelId);
+	if (modrevModelId) {
+		payload.modrevModelId = modrevModelId;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -505,6 +547,8 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
+	modrevProviderId?: string | null;
+	modrevModelId?: string | null;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -527,6 +571,8 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		modrevProviderId: normalizeModrevProviderId(input.modrevProviderId),
+		modrevModelId: normalizeModrevValue(input.modrevModelId),
 	};
 }
 
@@ -544,6 +590,8 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
+		modrevProviderId: current.modrevProviderId,
+		modrevModelId: current.modrevModelId,
 	});
 }
 
@@ -561,6 +609,8 @@ export function toProjectRuntimeConfigState(current: RuntimeConfigState, cwd: st
 		shortcuts: current.shortcuts,
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
+		modrevProviderId: current.modrevProviderId,
+		modrevModelId: current.modrevModelId,
 	});
 }
 
@@ -594,6 +644,9 @@ export async function updateRuntimeConfig(
 			shortcuts: update.shortcuts ?? currentState.shortcuts,
 			commitPromptTemplate: update.commitPromptTemplate ?? currentState.commitPromptTemplate,
 			openPrPromptTemplate: update.openPrPromptTemplate ?? currentState.openPrPromptTemplate,
+			modrevProviderId:
+				update.modrevProviderId !== undefined ? update.modrevProviderId : currentState.modrevProviderId,
+			modrevModelId: update.modrevModelId !== undefined ? update.modrevModelId : currentState.modrevModelId,
 		});
 
 		await writeRuntimeGlobalConfigFile(currentState.globalConfigPath, {
@@ -606,6 +659,8 @@ export async function updateRuntimeConfig(
 			llmRetryEnabled: newState.llmRetryEnabled,
 			llmRetryDelayMs: newState.llmRetryDelayMs,
 			llmRetryMaxAttempts: newState.llmRetryMaxAttempts,
+			modrevProviderId: newState.modrevProviderId,
+			modrevModelId: newState.modrevModelId,
 		});
 
 		if (currentState.projectConfigPath) {

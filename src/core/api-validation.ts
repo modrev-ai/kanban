@@ -371,6 +371,7 @@ export function parseClineAddProviderRequest(value: unknown): RuntimeClineAddPro
 		defaultModelId: parsed.defaultModelId?.trim() || null,
 		modelsSourceUrl,
 		capabilities: parsed.capabilities ? [...new Set(parsed.capabilities)] : undefined,
+		...(parsed.setLastUsed !== undefined ? { setLastUsed: parsed.setLastUsed } : {}),
 	};
 }
 

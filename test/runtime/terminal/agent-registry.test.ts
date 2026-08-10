@@ -31,6 +31,8 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		modrevProviderId: null,
+		modrevModelId: null,
 		...overrides,
 	};
 }

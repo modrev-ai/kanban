@@ -738,6 +738,10 @@ export const runtimeClineAddProviderRequestSchema = z.object({
 	defaultModelId: z.string().nullable().optional(),
 	modelsSourceUrl: z.string().nullable().optional(),
 	capabilities: z.array(runtimeClineProviderCapabilitySchema).optional(),
+	// When false, the provider is registered without becoming the SDK's
+	// "last used" provider. Modrev uses this so registering a model does not
+	// change the Cline agent's active provider.
+	setLastUsed: z.boolean().optional(),
 });
 export type RuntimeClineAddProviderRequest = z.infer<typeof runtimeClineAddProviderRequestSchema>;
 
@@ -968,6 +972,10 @@ export const runtimeConfigResponseSchema = z.object({
 	agents: z.array(runtimeAgentDefinitionSchema),
 	shortcuts: z.array(runtimeProjectShortcutSchema),
 	clineProviderSettings: runtimeClineProviderSettingsSchema,
+	// The Modrev agent's active model, tracked independently of the Cline
+	// provider selection above.
+	modrevProviderId: z.string().nullable(),
+	modrevModelId: z.string().nullable(),
 	commitPromptTemplate: z.string(),
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
@@ -983,6 +991,8 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
+	modrevProviderId: z.string().nullable().optional(),
+	modrevModelId: z.string().nullable().optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 

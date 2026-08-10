@@ -226,9 +226,20 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 
 				if (useClinePath) {
 					const hasTaskLevelClineSettingsOverride = body.clineSettings !== undefined;
+					// The Modrev agent tracks its active model separately from the
+					// SDK's "last used" Cline provider, so resolve its launch config
+					// from the Kanban-owned Modrev selection when the task has no
+					// explicit per-task provider override.
+					const isModrevLaunch = effectiveAgentId === "modrev";
+					const providerIdOverride =
+						body.clineSettings?.providerId ??
+						(isModrevLaunch ? (scopedRuntimeConfig.modrevProviderId ?? undefined) : undefined);
+					const modelIdOverride =
+						body.clineSettings?.modelId ??
+						(isModrevLaunch ? (scopedRuntimeConfig.modrevModelId ?? undefined) : undefined);
 					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig({
-						providerIdOverride: body.clineSettings?.providerId ?? undefined,
-						modelIdOverride: body.clineSettings?.modelId ?? undefined,
+						providerIdOverride,
+						modelIdOverride,
 						...(hasTaskLevelClineSettingsOverride
 							? {
 									reasoningEffortOverride: body.clineSettings?.reasoningEffort ?? null,
