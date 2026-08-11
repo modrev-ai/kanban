@@ -422,6 +422,115 @@ describe("useTaskAgentModelPicker – provider-aware model default label", () =>
 	});
 });
 
+describe("TaskAgentModelPicker – flat model dropdown", () => {
+	it("selecting a Modrev model applies the modrev agent pinned to its provider and default model", async () => {
+		const onAgentIdChange = vi.fn();
+		const onClineSettingsChange = vi.fn();
+		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
+
+		await act(async () =>
+			root.render(
+				<TaskAgentModelPicker
+					agentId={"claude" as RuntimeAgentId}
+					onAgentIdChange={onAgentIdChange}
+					clineSettings={undefined}
+					onClineSettingsChange={onClineSettingsChange}
+					taskModelOptions={[
+						{ value: "claude", label: "Claude Code", agentId: "claude" },
+						{
+							value: "modrev:modrev-a",
+							label: "Modrev A",
+							agentId: "modrev",
+							providerId: "modrev-a",
+							modelId: "model-a",
+						},
+					]}
+					defaultTaskModelLabel="Default (Claude Code)"
+					clineProviderOptions={[{ value: "", label: "Cline" }]}
+					clineModelOptions={[{ value: "", label: "Default" }]}
+					isLoadingProviders={false}
+					isLoadingModels={false}
+					defaultAgentId={"claude" as RuntimeAgentId}
+					defaultProviderId={null}
+				/>,
+			),
+		);
+
+		// Open the flat model dropdown (its trigger shows the current selection).
+		const trigger = Array.from(container.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Claude Code"),
+		);
+		expect(trigger).not.toBeUndefined();
+		await act(async () => {
+			(trigger as HTMLButtonElement).click();
+		});
+
+		const modrevOption = Array.from(document.querySelectorAll("button")).find(
+			(button) => button.textContent?.trim() === "Modrev A",
+		);
+		expect(modrevOption).not.toBeUndefined();
+		await act(async () => {
+			(modrevOption as HTMLButtonElement).click();
+		});
+
+		expect(onAgentIdChange).toHaveBeenLastCalledWith("modrev");
+		expect(onClineSettingsChange).toHaveBeenLastCalledWith({ providerId: "modrev-a", modelId: "model-a" });
+	});
+
+	it("selecting Claude Code clears any native provider override", async () => {
+		const onAgentIdChange = vi.fn();
+		const onClineSettingsChange = vi.fn();
+		const { TaskAgentModelPicker } = await import("@/components/task-agent-model-picker");
+
+		await act(async () =>
+			root.render(
+				<TaskAgentModelPicker
+					agentId={"modrev" as RuntimeAgentId}
+					onAgentIdChange={onAgentIdChange}
+					clineSettings={{ providerId: "modrev-a", modelId: "model-a" }}
+					onClineSettingsChange={onClineSettingsChange}
+					taskModelOptions={[
+						{ value: "claude", label: "Claude Code", agentId: "claude" },
+						{
+							value: "modrev:modrev-a",
+							label: "Modrev A",
+							agentId: "modrev",
+							providerId: "modrev-a",
+							modelId: "model-a",
+						},
+					]}
+					defaultTaskModelLabel="Default (Claude Code)"
+					clineProviderOptions={[{ value: "", label: "Modrev A" }]}
+					clineModelOptions={[{ value: "", label: "Default" }]}
+					isLoadingProviders={false}
+					isLoadingModels={false}
+					defaultAgentId={"claude" as RuntimeAgentId}
+					defaultProviderId={null}
+				/>,
+			),
+		);
+
+		const trigger = Array.from(container.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Modrev A"),
+		);
+		expect(trigger).not.toBeUndefined();
+		await act(async () => {
+			(trigger as HTMLButtonElement).click();
+		});
+
+		const claudeOption = Array.from(document.querySelectorAll("button")).find(
+			(button) => button.textContent?.trim() === "Claude Code",
+		);
+		expect(claudeOption).not.toBeUndefined();
+		await act(async () => {
+			(claudeOption as HTMLButtonElement).click();
+		});
+
+		expect(onAgentIdChange).toHaveBeenLastCalledWith("claude");
+		expect(onClineSettingsChange).toHaveBeenLastCalledWith(undefined);
+	});
+});
+
 describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 	it("resets clineModelId to the first real model when the selected model is not in the options list", async () => {
 		const onClineSettingsChange = vi.fn();
@@ -443,7 +552,6 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "claude-opus-4-20250514",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Anthropic" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -481,7 +589,6 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "llama-3.3-70b-versatile",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Groq" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -511,7 +618,6 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "claude-opus-4-20250514",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Anthropic" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -542,7 +648,6 @@ describe("TaskAgentModelPicker – auto-reset invalid model selection", () => {
 						modelId: "mixtral-8x7b-32768",
 					})}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Groq" }]}
 					clineModelOptions={modelOptions}
 					isLoadingProviders={false}
@@ -569,7 +674,6 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					onAgentIdChange={() => {}}
 					clineSettings={undefined}
 					onClineSettingsChange={() => {}}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Cline" }]}
 					clineModelOptions={[
 						{ value: "", label: "GPT-5.4" },
@@ -619,7 +723,6 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 						onAgentIdChange={() => {}}
 						clineSettings={undefined}
 						onClineSettingsChange={() => {}}
-						agentOptions={[{ value: "", label: "Cline" }]}
 						clineProviderOptions={[{ value: "", label: "Cline" }]}
 						clineModelOptions={[
 							{ value: "", label: "GPT-5.4" },
@@ -666,7 +769,6 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					onAgentIdChange={() => {}}
 					clineSettings={undefined}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Cline" }]}
 					clineModelOptions={[
 						{ value: "", label: "GPT-5.4" },
@@ -724,7 +826,6 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 					onAgentIdChange={() => {}}
 					clineSettings={undefined}
 					onClineSettingsChange={onClineSettingsChange}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Cline" }]}
 					clineModelOptions={[{ value: "", label: "GPT-5.4" }]}
 					effectiveDefaultModelId="openai/gpt-5.4"
@@ -775,7 +876,6 @@ describe("TaskAgentModelPicker – inherited default reasoning effort", () => {
 						modelId: "openai/gpt-5.3-codex",
 					})}
 					onClineSettingsChange={() => {}}
-					agentOptions={[{ value: "", label: "Cline" }]}
 					clineProviderOptions={[{ value: "", label: "Cline" }]}
 					clineModelOptions={[
 						{ value: "", label: "GPT-5.4" },
