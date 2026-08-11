@@ -4,6 +4,7 @@
 
 - Added the Modrev agent: connect any OpenAI-compatible model using your own API key, base URL, and model ID
 - Manage multiple custom models from a Models list in settings, with the ability to add and remove them individually
+- Choose the model for each task from a single dropdown that lists Claude Code alongside every registered Modrev model, and set the default for new tasks from the unified Models settings
 - Custom models now work end-to-end in the chat UI, including reliable multi-turn conversations
 - Added configurable automatic retry when a model response fails, so transient provider errors no longer end a task (new llmRetry settings)
 - Live sessions now abort immediately when provider credits are exhausted instead of retrying pointlessly
