@@ -104,16 +104,18 @@ export function useRuntimeSettingsModrevController(
 		}
 	}, [workspaceId]);
 
-	// Load the provider catalog whenever the Modrev agent settings are shown.
+	// Load the provider catalog whenever the settings dialog is open. The Models
+	// registry is always visible (not gated on the Modrev agent being selected),
+	// so registered Modrev models must load regardless of the active agent.
 	useEffect(() => {
-		if (!open || selectedAgentId !== "modrev") {
+		if (!open) {
 			catalogRequestIdRef.current += 1;
 			setCatalog([]);
 			setIsLoadingModels(false);
 			return;
 		}
 		void loadModels();
-	}, [loadModels, open, selectedAgentId]);
+	}, [loadModels, open]);
 
 	// Seed the active selection from the persisted Modrev config.
 	useEffect(() => {

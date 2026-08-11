@@ -1,5 +1,4 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
 import { ChevronDown } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -12,10 +11,16 @@ import {
 } from "@/components/detail-panels/cline-model-picker-options";
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { cn } from "@/components/ui/cn";
-import { NativeSelect } from "@/components/ui/native-select";
 import { isModrevModelProviderId } from "@/runtime/modrev-provider";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
+import {
+	buildDefaultTaskModelLabel,
+	buildTaskModelOptions,
+	resolveTaskModelSelection,
+	selectedTaskModelValue,
+	type TaskModelOption,
+} from "@/runtime/task-model-options";
 import type {
 	RuntimeAgentId,
 	RuntimeClineProviderCatalogItem,
@@ -39,10 +44,15 @@ export interface UseTaskAgentModelPickerInput {
 	defaultProviderId?: string | null;
 	/** The default Cline model ID from runtimeConfig.clineProviderSettings.modelId */
 	defaultModelId?: string | null;
+	/** The active Modrev model's provider ID from runtimeConfig.modrevProviderId — used to label the default when Modrev is the default agent. */
+	defaultModrevProviderId?: string | null;
 }
 
 export interface UseTaskAgentModelPickerResult {
-	agentOptions: Array<{ value: string; label: string }>;
+	/** Flat list of directly selectable task models (agents + registered Modrev models). */
+	taskModelOptions: TaskModelOption[];
+	/** Label for the "Default" option, reflecting the project's configured default. */
+	defaultTaskModelLabel: string;
 	clineProviderOptions: Array<{ value: string; label: string }>;
 	clineModelOptions: Array<{ value: string; label: string }>;
 	effectiveDefaultModelId: string | null;
@@ -61,6 +71,7 @@ export function useTaskAgentModelPicker({
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
+	defaultModrevProviderId,
 }: UseTaskAgentModelPickerInput): UseTaskAgentModelPickerResult {
 	const [providerCatalog, setProviderCatalog] = useState<RuntimeClineProviderCatalogItem[]>([]);
 	const [providerModels, setProviderModels] = useState<RuntimeClineProviderModel[]>([]);
@@ -70,8 +81,11 @@ export function useTaskAgentModelPicker({
 	// Derive the effective agent: explicit override takes precedence, then the global default
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
 
+	// Load the provider catalog whenever the picker is active — not just for
+	// native agents — so the flat model dropdown can list every registered
+	// Modrev model even when the default agent is Claude Code or another CLI.
 	useEffect(() => {
-		if (!active || !isNativeClineAgentSelected(effectiveAgentId)) {
+		if (!active) {
 			return;
 		}
 		let cancelled = false;
@@ -95,7 +109,7 @@ export function useTaskAgentModelPicker({
 		return () => {
 			cancelled = true;
 		};
-	}, [active, effectiveAgentId, workspaceId]);
+	}, [active, workspaceId]);
 
 	// Derive the effective provider: explicit override takes precedence, then the global default
 	const clineProviderId = clineSettings?.providerId;
@@ -129,23 +143,19 @@ export function useTaskAgentModelPicker({
 		};
 	}, [active, effectiveAgentId, effectiveProviderId, workspaceId]);
 
-	const agentOptions = useMemo(() => {
-		const catalog = getRuntimeLaunchSupportedAgentCatalog();
-		let firstLabel = "Default";
-		if (defaultAgentId) {
-			const defaultAgent = catalog.find((a) => a.id === defaultAgentId);
-			if (defaultAgent) {
-				firstLabel = defaultAgent.label;
-			}
-		}
-		return [
-			{ value: "", label: firstLabel },
-			// Exclude the default agent from the explicit list — it's already represented by the first option
-			...catalog
-				.filter((agent) => agent.id !== defaultAgentId)
-				.map((agent) => ({ value: agent.id, label: agent.label })),
-		];
-	}, [defaultAgentId]);
+	// Flat, first-class list of selectable task models: each agent plus every
+	// registered Modrev model expanded by name.
+	const taskModelOptions = useMemo(() => buildTaskModelOptions(providerCatalog), [providerCatalog]);
+	const defaultTaskModelLabel = useMemo(
+		() =>
+			buildDefaultTaskModelLabel({
+				defaultAgentId,
+				// Modrev's active model lives in its own config field, not the Cline provider.
+				defaultProviderId: defaultAgentId === "modrev" ? defaultModrevProviderId : defaultProviderId,
+				catalog: providerCatalog,
+			}),
+		[defaultAgentId, defaultModrevProviderId, defaultProviderId, providerCatalog],
+	);
 
 	// For the Modrev agent, the selectable "providers" are its own registered
 	// models; hide the built-in Cline providers so the picker stays scoped.
@@ -210,7 +220,8 @@ export function useTaskAgentModelPicker({
 	}, [providerModels, effectiveDefaultModelId]);
 
 	return {
-		agentOptions,
+		taskModelOptions,
+		defaultTaskModelLabel,
 		clineProviderOptions,
 		clineModelOptions,
 		effectiveDefaultModelId,
@@ -243,7 +254,8 @@ export function TaskAgentModelPicker({
 	onAgentIdChange,
 	clineSettings,
 	onClineSettingsChange,
-	agentOptions,
+	taskModelOptions = [],
+	defaultTaskModelLabel = "Default",
 	clineProviderOptions,
 	clineModelOptions,
 	effectiveDefaultModelId = null,
@@ -260,7 +272,10 @@ export function TaskAgentModelPicker({
 	onAgentIdChange: (value: RuntimeAgentId | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
-	agentOptions: Array<{ value: string; label: string }>;
+	/** Flat list of directly selectable task models (agents + registered Modrev models). */
+	taskModelOptions?: TaskModelOption[];
+	/** Label for the "Default" (inherit-project-default) option. */
+	defaultTaskModelLabel?: string;
 	clineProviderOptions: Array<{ value: string; label: string }>;
 	clineModelOptions: Array<{ value: string; label: string }>;
 	effectiveDefaultModelId?: string | null;
@@ -327,6 +342,29 @@ export function TaskAgentModelPicker({
 			});
 		},
 		[defaultReasoningEffort, updateTaskClineSettings],
+	);
+
+	// The flat model dropdown: "Default" plus every directly selectable model
+	// (each agent, with Modrev expanded into its registered models).
+	const flatModelOptions = useMemo(
+		() => [
+			{ value: "", label: defaultTaskModelLabel },
+			...taskModelOptions.map((option) => ({ value: option.value, label: option.label })),
+		],
+		[defaultTaskModelLabel, taskModelOptions],
+	);
+	const selectedModelValue = selectedTaskModelValue(agentId, clineSettings);
+
+	const handleSelectTaskModel = useCallback(
+		(value: string) => {
+			const selection = resolveTaskModelSelection(value, taskModelOptions);
+			onAgentIdChange(selection.agentId);
+			onClineSettingsChange?.(selection.clineSettings);
+			// An explicit model override starts without an inherited reasoning
+			// effort; falling back to Default restores the project-level effort.
+			setReasoningEffort(value ? "" : (defaultReasoningEffort ?? ""));
+		},
+		[defaultReasoningEffort, onAgentIdChange, onClineSettingsChange, taskModelOptions],
 	);
 
 	const modelPickerOptions = useMemo(() => {
@@ -461,50 +499,48 @@ export function TaskAgentModelPicker({
 		}
 	}, [clineModelId, isLoadingModels, modelPickerOptions.options, updateTaskClineSettings]);
 
+	// For Modrev, the specific model is chosen directly via the flat dropdown, so
+	// the advanced provider picker is redundant and hidden. Cline keeps it since
+	// it can run against many providers.
+	const showClineProviderOverride = showClineProviderPicker && effectiveAgentId !== "modrev";
+
 	return (
 		<div className="flex flex-col gap-2">
-			<Collapsible.Root open={isSettingsExpanded} onOpenChange={setIsSettingsExpanded}>
-				<Collapsible.Trigger asChild>
-					<button
-						type="button"
-						className="inline-flex w-fit items-center gap-1 text-[12px] text-text-secondary hover:text-text-primary cursor-pointer bg-transparent border-none p-0"
-					>
-						<ChevronDown
-							size={12}
-							className={cn("transition-transform", isSettingsExpanded ? "rotate-0" : "-rotate-90")}
-						/>
-						Override Agent Settings
-					</button>
-				</Collapsible.Trigger>
-				<Collapsible.Content className="pt-2">
-					<div className="flex flex-col gap-2">
-						<div className="w-full sm:w-1/2 min-w-0">
-							<span className="text-[11px] text-text-secondary block mb-1">Agent</span>
-							<NativeSelect
-								size="sm"
-								fill
-								value={agentId ?? ""}
-								onChange={(e) => {
-									const value = e.currentTarget.value;
-									const nextAgentId = value ? (value as RuntimeAgentId) : undefined;
-									onAgentIdChange(nextAgentId);
-									// Keep Cline/Modrev provider settings when switching between
-									// native agents; clear them when moving to a CLI agent/default.
-									if (!isNativeClineAgentSelected(nextAgentId)) {
-										onClineSettingsChange?.(undefined);
-										setReasoningEffort("");
-									}
-								}}
-							>
-								{agentOptions.map((option) => (
-									<option key={option.value} value={option.value}>
-										{option.label}
-									</option>
-								))}
-							</NativeSelect>
-						</div>
-						{showClineProviderPicker ? (
-							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<div className="w-full sm:w-1/2 min-w-0">
+				<span className="text-[11px] text-text-secondary block mb-1">
+					Model{isLoadingProviders ? " (loading\u2026)" : ""}
+				</span>
+				<SearchSelectDropdown
+					options={flatModelOptions}
+					selectedValue={selectedModelValue}
+					onSelect={handleSelectTaskModel}
+					disabled={isLoadingProviders}
+					fill
+					size="sm"
+					placeholder="Search models..."
+					emptyText="No models available"
+					noResultsText="No matching models"
+					showSelectedIndicator
+					onPopoverOpenChange={setIsProviderPopoverOpen}
+				/>
+			</div>
+			{showClineProviderPicker ? (
+				<Collapsible.Root open={isSettingsExpanded} onOpenChange={setIsSettingsExpanded}>
+					<Collapsible.Trigger asChild>
+						<button
+							type="button"
+							className="inline-flex w-fit items-center gap-1 text-[12px] text-text-secondary hover:text-text-primary cursor-pointer bg-transparent border-none p-0"
+						>
+							<ChevronDown
+								size={12}
+								className={cn("transition-transform", isSettingsExpanded ? "rotate-0" : "-rotate-90")}
+							/>
+							Override Agent Settings
+						</button>
+					</Collapsible.Trigger>
+					<Collapsible.Content className="pt-2">
+						<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+							{showClineProviderOverride ? (
 								<div className="min-w-0">
 									<span className="text-[11px] text-text-secondary block mb-1">
 										Provider{isLoadingProviders ? " (loading\u2026)" : ""}
@@ -555,70 +591,70 @@ export function TaskAgentModelPicker({
 										onPopoverOpenChange={setIsProviderPopoverOpen}
 									/>
 								</div>
-								{showClineModelPicker ? (
-									<div className="min-w-0">
-										<span className="text-[11px] text-text-secondary block mb-1">
-											Model{isLoadingModels ? " (loading\u2026)" : ""}
-										</span>
-										<ClineChatModelSelector
-											modelOptions={modelPickerOptions.options}
-											recommendedModelIds={modelPickerOptions.recommendedModelIds}
-											pinSelectedModelToTop={modelPickerOptions.shouldPinSelectedModelToTop}
-											selectedModelId={clineModelId ?? ""}
-											selectedModelButtonText={selectedModelButtonText}
-											onSelectModel={(value) => {
-												updateTaskClineSettings((currentSettings) => {
-													const nextSettings = cloneTaskClineSettings(currentSettings) ?? {};
-													if (value) {
-														nextSettings.modelId = value;
-													} else {
-														delete nextSettings.modelId;
-													}
-													if (!value || !reasoningEnabledModelIdSet.has(value)) {
-														delete nextSettings.reasoningEffort;
-													}
-													const preserveEmptyOverride =
-														currentSettings !== undefined && Object.keys(currentSettings).length === 0;
-													return nextSettings.providerId ||
-														nextSettings.modelId ||
-														nextSettings.reasoningEffort ||
-														preserveEmptyOverride
-														? nextSettings
-														: undefined;
-												});
-												if (!value && !clineProviderId) {
-													setReasoningEffort(
-														clineSettings !== undefined && Object.keys(clineSettings).length === 0
-															? ""
-															: (defaultReasoningEffort ?? ""),
-													);
-													return;
+							) : null}
+							{showClineModelPicker ? (
+								<div className="min-w-0">
+									<span className="text-[11px] text-text-secondary block mb-1">
+										Model{isLoadingModels ? " (loading\u2026)" : ""}
+									</span>
+									<ClineChatModelSelector
+										modelOptions={modelPickerOptions.options}
+										recommendedModelIds={modelPickerOptions.recommendedModelIds}
+										pinSelectedModelToTop={modelPickerOptions.shouldPinSelectedModelToTop}
+										selectedModelId={clineModelId ?? ""}
+										selectedModelButtonText={selectedModelButtonText}
+										onSelectModel={(value) => {
+											updateTaskClineSettings((currentSettings) => {
+												const nextSettings = cloneTaskClineSettings(currentSettings) ?? {};
+												if (value) {
+													nextSettings.modelId = value;
+												} else {
+													delete nextSettings.modelId;
 												}
 												if (!value || !reasoningEnabledModelIdSet.has(value)) {
-													setReasoningEffortWithOverride("");
+													delete nextSettings.reasoningEffort;
 												}
-											}}
-											reasoningEnabledModelIds={reasoningEnabledModelIds}
-											defaultOptionSupportsReasoningEffort={
-												!clineModelId && selectedModelSupportsReasoningEffort
+												const preserveEmptyOverride =
+													currentSettings !== undefined && Object.keys(currentSettings).length === 0;
+												return nextSettings.providerId ||
+													nextSettings.modelId ||
+													nextSettings.reasoningEffort ||
+													preserveEmptyOverride
+													? nextSettings
+													: undefined;
+											});
+											if (!value && !clineProviderId) {
+												setReasoningEffort(
+													clineSettings !== undefined && Object.keys(clineSettings).length === 0
+														? ""
+														: (defaultReasoningEffort ?? ""),
+												);
+												return;
 											}
-											selectedReasoningEffort={reasoningEffort}
-											onSelectReasoningEffort={(nextReasoningEffort) =>
-												setReasoningEffortWithOverride(nextReasoningEffort)
+											if (!value || !reasoningEnabledModelIdSet.has(value)) {
+												setReasoningEffortWithOverride("");
 											}
-											disabled={isLoadingModels}
-											isModelLoading={isLoadingModels}
-											fill
-											triggerVariant="default"
-											onPopoverOpenChange={setIsModelPopoverOpen}
-										/>
-									</div>
-								) : null}
-							</div>
-						) : null}
-					</div>
-				</Collapsible.Content>
-			</Collapsible.Root>
+										}}
+										reasoningEnabledModelIds={reasoningEnabledModelIds}
+										defaultOptionSupportsReasoningEffort={
+											!clineModelId && selectedModelSupportsReasoningEffort
+										}
+										selectedReasoningEffort={reasoningEffort}
+										onSelectReasoningEffort={(nextReasoningEffort) =>
+											setReasoningEffortWithOverride(nextReasoningEffort)
+										}
+										disabled={isLoadingModels}
+										isModelLoading={isLoadingModels}
+										fill
+										triggerVariant="default"
+										onPopoverOpenChange={setIsModelPopoverOpen}
+									/>
+								</div>
+							) : null}
+						</div>
+					</Collapsible.Content>
+				</Collapsible.Root>
+			) : null}
 		</div>
 	);
 }

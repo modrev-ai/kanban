@@ -74,6 +74,7 @@ export function TaskInlineCreateCard({
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
+	defaultModrevProviderId,
 	defaultReasoningEffort,
 }: {
 	title?: string;
@@ -109,6 +110,8 @@ export function TaskInlineCreateCard({
 	defaultProviderId?: string | null;
 	/** Default Cline model ID from runtimeConfig.clineProviderSettings.modelId */
 	defaultModelId?: string | null;
+	/** Active Modrev model provider ID from runtimeConfig.modrevProviderId */
+	defaultModrevProviderId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
 }): ReactElement {
@@ -138,7 +141,8 @@ export function TaskInlineCreateCard({
 	const cardMarginBottom = mode === "create" ? 6 : 0;
 
 	const {
-		agentOptions,
+		taskModelOptions,
+		defaultTaskModelLabel,
 		clineProviderOptions,
 		clineModelOptions,
 		effectiveDefaultModelId,
@@ -154,6 +158,7 @@ export function TaskInlineCreateCard({
 		defaultAgentId,
 		defaultProviderId,
 		defaultModelId,
+		defaultModrevProviderId,
 	});
 
 	useHotkeys(
@@ -314,7 +319,8 @@ export function TaskInlineCreateCard({
 						onAgentIdChange={onAgentIdChange}
 						clineSettings={clineSettings}
 						onClineSettingsChange={onClineSettingsChange}
-						agentOptions={agentOptions}
+						taskModelOptions={taskModelOptions}
+						defaultTaskModelLabel={defaultTaskModelLabel}
 						clineProviderOptions={clineProviderOptions}
 						clineModelOptions={clineModelOptions}
 						effectiveDefaultModelId={effectiveDefaultModelId}
