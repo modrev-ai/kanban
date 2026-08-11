@@ -24,6 +24,7 @@ import type {
 	UseRuntimeSettingsModrevControllerResult,
 } from "@/hooks/use-runtime-settings-modrev-controller";
 import { fetchClineProviderModels } from "@/runtime/runtime-config-query";
+import type { RuntimeAgentId } from "@/runtime/types";
 
 // Lists the custom Modrev models and lets each one be added or edited through
 // the same OpenAI-compatible provider dialog used by Cline (name, base URL, API
@@ -32,15 +33,22 @@ export function ModrevSetupSection({
 	controller,
 	controlsDisabled,
 	workspaceId = null,
+	activeAgentId,
+	onActiveAgentChange,
 	onError,
 	onSaved,
 }: {
 	controller: UseRuntimeSettingsModrevControllerResult;
 	controlsDisabled: boolean;
 	workspaceId?: string | null;
+	/** The agent currently selected as the default for new tasks. */
+	activeAgentId: RuntimeAgentId;
+	/** Switch the default agent (e.g. to Claude Code or Modrev) when a model is chosen. */
+	onActiveAgentChange: (agentId: RuntimeAgentId) => void;
 	onError?: (message: string | null) => void;
 	onSaved?: () => void;
 }): ReactElement {
+	const isClaudeActive = activeAgentId === "claude";
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
 	const [dialogMode, setDialogMode] = useState<ClineProviderDialogMode>("add");
 	const [editInitialValues, setEditInitialValues] = useState<ClineProviderDialogInitialValues | null>(null);
@@ -90,8 +98,17 @@ export function ModrevSetupSection({
 				onError?.(result.message ?? "Failed to select Modrev model.");
 				return;
 			}
+			// Selecting a Modrev model makes Modrev the default agent for new tasks.
+			onActiveAgentChange("modrev");
 			onSaved?.();
 		})();
+	};
+
+	const handleSelectClaudeCode = () => {
+		// Switching the default agent is a draft change persisted on dialog Save,
+		// so there is nothing to refresh here.
+		onError?.(null);
+		onActiveAgentChange("claude");
 	};
 
 	const handleConfirmRemove = () => {
@@ -116,8 +133,38 @@ export function ModrevSetupSection({
 	return (
 		<>
 			<div className="mt-2">
-				<div className="flex items-center justify-between mb-2">
-					<p className="text-text-primary font-semibold text-[12px] m-0">Models</p>
+				<p className="text-text-secondary text-[12px] mt-0 mb-3">
+					Pick the default model for new tasks. Claude Code runs the installed CLI; Modrev models are custom
+					OpenAI-compatible endpoints you register below.
+				</p>
+
+				<button
+					type="button"
+					disabled={controlsDisabled}
+					onClick={handleSelectClaudeCode}
+					aria-pressed={isClaudeActive}
+					className={cn(
+						"mb-2 flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left disabled:cursor-default",
+						isClaudeActive ? "border-accent bg-surface-2" : "border-border bg-surface-1",
+					)}
+				>
+					{isClaudeActive ? (
+						<CircleDot size={16} className="text-accent shrink-0" />
+					) : (
+						<Circle size={16} className="text-text-secondary shrink-0" />
+					)}
+					<span className="min-w-0">
+						<span className="block truncate text-[13px] text-text-primary">Claude Code</span>
+						<span className="block truncate text-text-secondary text-[11px]">
+							Anthropic CLI agent · always available
+						</span>
+					</span>
+				</button>
+
+				<div className="flex items-center justify-between mt-3 mb-1">
+					<p className="text-text-secondary text-[11px] font-semibold uppercase tracking-wider m-0">
+						Modrev models
+					</p>
 					{controller.models.length > 0 ? (
 						<Button
 							variant="ghost"
@@ -130,9 +177,6 @@ export function ModrevSetupSection({
 						</Button>
 					) : null}
 				</div>
-				<p className="text-text-secondary text-[12px] mt-0 mb-3">
-					Register custom OpenAI-compatible models for Modrev. Select one to use it for tasks.
-				</p>
 
 				{controller.isLoadingModels ? (
 					<p className="text-text-secondary text-[12px] mt-1 mb-0">Loading models...</p>
@@ -152,7 +196,7 @@ export function ModrevSetupSection({
 				) : (
 					<div className="flex flex-col gap-1">
 						{controller.models.map((model) => {
-							const isActive = model.providerId === controller.activeProviderId;
+							const isActive = activeAgentId === "modrev" && model.providerId === controller.activeProviderId;
 							return (
 								<div
 									key={model.providerId}

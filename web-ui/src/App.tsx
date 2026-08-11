@@ -788,6 +788,7 @@ export default function App(): ReactElement {
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+			defaultModrevProviderId={runtimeProjectConfig?.modrevProviderId ?? null}
 			defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
 			mode="edit"
 			idPrefix={`inline-edit-task-${editingTaskId}`}
@@ -1136,6 +1137,7 @@ export default function App(): ReactElement {
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+					defaultModrevProviderId={runtimeProjectConfig?.modrevProviderId ?? null}
 					defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
 				/>
 				<ClearTrashDialog

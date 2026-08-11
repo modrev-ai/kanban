@@ -125,6 +125,7 @@ export function TaskCreateDialog({
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
+	defaultModrevProviderId,
 	defaultReasoningEffort,
 }: {
 	open: boolean;
@@ -159,6 +160,8 @@ export function TaskCreateDialog({
 	defaultProviderId?: string | null;
 	/** Default Cline model ID from runtimeConfig.clineProviderSettings.modelId */
 	defaultModelId?: string | null;
+	/** Active Modrev model provider ID from runtimeConfig.modrevProviderId */
+	defaultModrevProviderId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
 }): ReactElement {
@@ -178,7 +181,8 @@ export function TaskCreateDialog({
 	);
 
 	const {
-		agentOptions,
+		taskModelOptions,
+		defaultTaskModelLabel,
 		clineProviderOptions,
 		clineModelOptions,
 		effectiveDefaultModelId,
@@ -194,6 +198,7 @@ export function TaskCreateDialog({
 		defaultAgentId,
 		defaultProviderId,
 		defaultModelId,
+		defaultModrevProviderId,
 	});
 
 	const detectedItems = useMemo(() => parseListItems(prompt), [prompt]);
@@ -582,7 +587,8 @@ export function TaskCreateDialog({
 							onAgentIdChange={onAgentIdChange}
 							clineSettings={clineSettings}
 							onClineSettingsChange={onClineSettingsChange}
-							agentOptions={agentOptions}
+							taskModelOptions={taskModelOptions}
+							defaultTaskModelLabel={defaultTaskModelLabel}
 							clineProviderOptions={clineProviderOptions}
 							clineModelOptions={clineModelOptions}
 							effectiveDefaultModelId={effectiveDefaultModelId}

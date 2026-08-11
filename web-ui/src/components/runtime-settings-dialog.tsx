@@ -110,7 +110,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 }> = [
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
 	{ id: "cline", label: "Cline", icon: <Bot size={16} />, agentOnly: "cline" },
-	{ id: "modrev", label: "Modrev", icon: <Bot size={16} />, agentOnly: "modrev" },
+	{ id: "modrev", label: "Models", icon: <Bot size={16} /> },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
@@ -871,27 +871,25 @@ export function RuntimeSettingsDialog({
 						</>
 					) : null}
 
-					{/* ---- Modrev ---- */}
-					{selectedAgentId === "modrev" ? (
-						<>
-							<div data-settings-section="modrev" />
-							<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
-								<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
-									<Bot size={16} className="text-text-secondary" />
-									Modrev
-								</h2>
-							</div>
-							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-								<ModrevSetupSection
-									controller={modrevSettings}
-									controlsDisabled={controlsDisabled}
-									workspaceId={workspaceId}
-									onError={setSaveError}
-									onSaved={handleClineSetupSaved}
-								/>
-							</div>
-						</>
-					) : null}
+					{/* ---- Models (Claude Code + registered Modrev models) ---- */}
+					<div data-settings-section="modrev" />
+					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+							<Bot size={16} className="text-text-secondary" />
+							Models
+						</h2>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<ModrevSetupSection
+							controller={modrevSettings}
+							controlsDisabled={controlsDisabled}
+							workspaceId={workspaceId}
+							activeAgentId={selectedAgentId}
+							onActiveAgentChange={setSelectedAgentId}
+							onError={setSaveError}
+							onSaved={handleClineSetupSaved}
+						/>
+					</div>
 
 					{/* ---- Git Prompts ---- */}
 					<div data-settings-section="git-prompts" />
