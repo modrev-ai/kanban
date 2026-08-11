@@ -50,6 +50,71 @@ Launched via a built-in chat-completions proxy provider ("openrouter")
 Cline SDK session host  →  streamed back into the Kanban board
 ```
 
+## Architecture diagrams
+
+> These render natively on GitHub. The same diagrams exist as visuals on the
+> Confluence page linked at the bottom of this doc.
+
+### Where Modrev sits: agent classification and routing
+
+How a task is routed, from agent id all the way to the model endpoint. The two
+decision points — `isNativeClineRuntimeAgent()` and `isBuiltInSdkProviderId()` —
+are the whole story of the Modrev integration.
+
+```mermaid
+flowchart TD
+    T["Task — agent id"] --> Q{"isNativeClineRuntimeAgent?"}
+    Q -- "no · claude, codex, gemini, droid, kiro" --> PTY["PTY runtime<br/>launch CLI binary in the task worktree"]
+    Q -- "yes · cline, modrev" --> NAT["Native Cline SDK runtime"]
+    NAT --> B{"isBuiltInSdkProviderId(providerId)?"}
+    B -- "yes · a Cline provider" --> DIRECT["Configure the built-in provider directly"]
+    B -- "no · a modrev- custom provider" --> PROXY["Route through the openrouter proxy<br/>pass the model's own baseURL / apiKey / modelId"]
+    DIRECT --> HOST["SDK session host → streamed to the board"]
+    PROXY --> HOST
+```
+
+### Modrev model lifecycle: add → persist → launch
+
+Registering a Modrev model writes a custom provider to `models.json` **without**
+touching Cline's active provider (`setLastUsed: false`). At launch, the provider
+service resolves it to the `openrouter` proxy carrying the model's own
+credentials.
+
+```mermaid
+sequenceDiagram
+    participant UI as Modrev settings UI
+    participant Ctrl as modrev-controller
+    participant API as runtime-api.ts
+    participant Svc as cline-provider-service
+    participant Store as SDK provider store (models.json)
+    UI->>Ctrl: addModel(apiKey, baseUrl, modelId)
+    Ctrl->>API: addClineProvider(setLastUsed = false)
+    API->>Svc: addCustomProvider()
+    Svc->>Store: persist provider "modrev-&lt;name&gt;"
+    Note over Svc,Store: setLastUsed = false → Cline's active provider is untouched
+    UI->>API: start task with the Modrev model
+    API->>Svc: resolveLaunchConfig()
+    Svc->>Store: ensureSdkCustomProvidersLoaded()
+    Svc-->>API: providerId = openrouter + baseURL / apiKey / modelId
+```
+
+### Turn retry and credit-exhaustion
+
+Model-response failures arrive as thrown errors *or* latched SDK error events.
+Everything except credit exhaustion and user cancellation is retried, up to the
+configured attempt cap.
+
+```mermaid
+flowchart TD
+    S["send turn"] --> R{"failure?"}
+    R -- "no" --> OK["turn complete"]
+    R -- "thrown error OR latched SDK error event (onTurnError)" --> C{"credit limit<br/>or user cancel?"}
+    C -- "yes" --> AB["abort session — never retried"]
+    C -- "no" --> A{"attempts left?<br/>default max 20"}
+    A -- "yes" --> W["wait delay (default 15s)<br/>emit retrying status"] --> S
+    A -- "no" --> F["surface failure to the user"]
+```
+
 ## Feature areas
 
 The fork is best understood as seven areas. Each maps to a cluster of commits
