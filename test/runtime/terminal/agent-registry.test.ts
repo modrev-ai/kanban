@@ -9,11 +9,24 @@ vi.mock("../../../src/terminal/command-discovery.js", () => ({
 }));
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import type { RuntimeClineProviderSettings } from "../../../src/core/api-contract";
 import {
 	buildRuntimeConfigResponse,
 	detectInstalledCommands,
 	resolveAgentCommand,
 } from "../../../src/terminal/agent-registry";
+
+const EMPTY_PROVIDER_SETTINGS: RuntimeClineProviderSettings = {
+	providerId: null,
+	modelId: null,
+	baseUrl: null,
+	apiKeyConfigured: false,
+	oauthProvider: null,
+	oauthAccessTokenConfigured: false,
+	oauthRefreshTokenConfigured: false,
+	oauthAccountId: null,
+	oauthExpiresAt: null,
+};
 
 function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): RuntimeConfigState {
 	return {
@@ -47,12 +60,14 @@ beforeEach(() => {
 
 describe("agent-registry", () => {
 	it("detects installed commands from the inherited PATH", () => {
-		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "claude");
+		// `claude` is a native SDK agent with no binary, so it is not probed on
+		// PATH; `codex` stands in as an external-CLI agent here.
+		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "codex");
 
 		const detected = detectInstalledCommands();
 
-		expect(detected).toEqual(["claude"]);
-		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(8);
+		expect(detected).toEqual(["codex"]);
+		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(7);
 	});
 
 	it("treats shell-only agents as unavailable", () => {
@@ -70,17 +85,7 @@ describe("buildRuntimeConfigResponse", () => {
 			agentAutonomousModeEnabled: true,
 		});
 
-		const response = buildRuntimeConfigResponse(config, {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(config, EMPTY_PROVIDER_SETTINGS, EMPTY_PROVIDER_SETTINGS);
 
 		expect(response.agentAutonomousModeEnabled).toBe(true);
 		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "codex", "cline", "modrev", "droid", "kiro"]);
@@ -99,17 +104,7 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "claude");
 
-		const response = buildRuntimeConfigResponse(config, {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(config, EMPTY_PROVIDER_SETTINGS, EMPTY_PROVIDER_SETTINGS);
 
 		expect(response.agentAutonomousModeEnabled).toBe(false);
 		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "codex", "cline", "modrev", "droid", "kiro"]);
@@ -119,7 +114,9 @@ describe("buildRuntimeConfigResponse", () => {
 		expect(response.agents.find((agent) => agent.id === "droid")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "kiro")?.defaultArgs).toEqual(["chat"]);
 		expect(response.agents.find((agent) => agent.id === "cline")?.installed).toBe(true);
-		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("claude");
+		// Claude is native (no binary), so it has no launchable CLI command.
+		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("");
+		expect(response.agents.find((agent) => agent.id === "claude")?.installed).toBe(true);
 		expect(response.agents.find((agent) => agent.id === "codex")?.command).toBe("codex");
 		expect(response.agents.find((agent) => agent.id === "droid")?.command).toBe("droid");
 		expect(response.agents.find((agent) => agent.id === "kiro")?.command).toBe("kiro-cli chat");
@@ -127,33 +124,21 @@ describe("buildRuntimeConfigResponse", () => {
 
 	it("sets debug mode from runtime environment variables", () => {
 		process.env.KANBAN_DEBUG_MODE = "true";
-		const response = buildRuntimeConfigResponse(createRuntimeConfigState(), {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(
+			createRuntimeConfigState(),
+			EMPTY_PROVIDER_SETTINGS,
+			EMPTY_PROVIDER_SETTINGS,
+		);
 		expect(response.debugModeEnabled).toBe(true);
 	});
 
 	it("supports debug_mode fallback env name", () => {
 		process.env.debug_mode = "1";
-		const response = buildRuntimeConfigResponse(createRuntimeConfigState(), {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(
+			createRuntimeConfigState(),
+			EMPTY_PROVIDER_SETTINGS,
+			EMPTY_PROVIDER_SETTINGS,
+		);
 		expect(response.debugModeEnabled).toBe(true);
 	});
 });

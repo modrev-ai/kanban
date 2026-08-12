@@ -16,6 +16,7 @@ import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateRuntimeConfig } from "../config/runtime-config";
 import { isNativeClineRuntimeAgent } from "../core/agent-catalog";
 import type {
+	RuntimeAgentId,
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
@@ -52,20 +53,35 @@ import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
-// The Modrev agent tracks its active model independently of the SDK's "last
-// used" Cline provider, so native launches for Modrev must resolve their
-// provider/model from the Kanban-owned Modrev config.
-function resolveNativeAgentLaunchOverrides(config: RuntimeConfigState): {
+// The built-in SDK provider the native Claude agent runs through.
+const CLAUDE_NATIVE_PROVIDER_ID = "anthropic";
+
+// Native agents don't launch an external CLI; they resolve a provider/model
+// launch config for the Cline SDK runtime. Each native agent pins that config
+// differently:
+//   - modrev tracks its active model independently of the SDK's "last used"
+//     Cline provider, so it resolves from the Kanban-owned Modrev config.
+//   - claude always runs through the SDK's built-in "anthropic" provider, so its
+//     API key and model come from the "anthropic" provider settings slot (kept
+//     independent of the Cline agent's active provider).
+//   - cline (and anything else) uses the SDK's currently selected provider.
+function resolveNativeAgentLaunchOverrides(
+	agentId: RuntimeAgentId,
+	config: RuntimeConfigState,
+): {
 	providerIdOverride?: string;
 	modelIdOverride?: string;
 } {
-	if (config.selectedAgentId !== "modrev") {
-		return {};
+	if (agentId === "modrev") {
+		return {
+			...(config.modrevProviderId ? { providerIdOverride: config.modrevProviderId } : {}),
+			...(config.modrevModelId ? { modelIdOverride: config.modrevModelId } : {}),
+		};
 	}
-	return {
-		...(config.modrevProviderId ? { providerIdOverride: config.modrevProviderId } : {}),
-		...(config.modrevModelId ? { modelIdOverride: config.modrevModelId } : {}),
-	};
+	if (agentId === "claude") {
+		return { providerIdOverride: CLAUDE_NATIVE_PROVIDER_ID };
+	}
+	return {};
 }
 
 export interface CreateRuntimeApiDependencies {
@@ -124,7 +140,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 	] as const;
 
 	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) =>
-		buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary());
+		buildRuntimeConfigResponse(
+			runtimeConfig,
+			clineProviderService.getProviderSettingsSummary(),
+			clineProviderService.getProviderSettingsSummary(CLAUDE_NATIVE_PROVIDER_ID),
+		);
 
 	return {
 		loadConfig: async (workspaceScope) => {
@@ -251,17 +271,12 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 
 				if (useClinePath) {
 					const hasTaskLevelClineSettingsOverride = body.clineSettings !== undefined;
-					// The Modrev agent tracks its active model separately from the
-					// SDK's "last used" Cline provider, so resolve its launch config
-					// from the Kanban-owned Modrev selection when the task has no
-					// explicit per-task provider override.
-					const isModrevLaunch = effectiveAgentId === "modrev";
-					const providerIdOverride =
-						body.clineSettings?.providerId ??
-						(isModrevLaunch ? (scopedRuntimeConfig.modrevProviderId ?? undefined) : undefined);
-					const modelIdOverride =
-						body.clineSettings?.modelId ??
-						(isModrevLaunch ? (scopedRuntimeConfig.modrevModelId ?? undefined) : undefined);
+					// Native agents pin their provider/model differently (Modrev tracks
+					// its own selection, Claude runs through the built-in "anthropic"
+					// provider). A per-task clineSettings override always wins.
+					const nativeOverrides = resolveNativeAgentLaunchOverrides(effectiveAgentId, scopedRuntimeConfig);
+					const providerIdOverride = body.clineSettings?.providerId ?? nativeOverrides.providerIdOverride;
+					const modelIdOverride = body.clineSettings?.modelId ?? nativeOverrides.modelIdOverride;
 					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig({
 						providerIdOverride,
 						modelIdOverride,
@@ -271,6 +286,20 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 								}
 							: {}),
 					});
+					// Claude must run on the built-in "anthropic" provider. If that slot
+					// isn't configured, resolveLaunchConfig falls back to the currently
+					// selected provider — which would silently run "Claude" on a different
+					// model. Fail with a clear setup message instead.
+					if (
+						providerIdOverride === CLAUDE_NATIVE_PROVIDER_ID &&
+						clineLaunchConfig.providerId !== CLAUDE_NATIVE_PROVIDER_ID
+					) {
+						return {
+							ok: false,
+							summary: null,
+							error: "Claude needs an Anthropic API key. Open Settings, configure the Anthropic provider and model, then start the task again.",
+						};
+					}
 					const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
 					const resolvedClineTitle = resolveTaskTitle(body.taskTitle?.trim(), body.prompt);
 					const summary = await clineTaskSessionService.startTaskSession({
@@ -470,7 +499,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				if (!summary && isHomeAgentSessionId(body.taskId)) {
 					const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
 					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
-						resolveNativeAgentLaunchOverrides(scopedRuntimeConfig),
+						resolveNativeAgentLaunchOverrides(scopedRuntimeConfig.selectedAgentId, scopedRuntimeConfig),
 					);
 					summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
@@ -674,7 +703,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					} else {
 						const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
 						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig(
-							resolveNativeAgentLaunchOverrides(scopedRuntimeConfig),
+							resolveNativeAgentLaunchOverrides(scopedRuntimeConfig.selectedAgentId, scopedRuntimeConfig),
 						);
 						summary = await clineTaskSessionService.startTaskSession({
 							taskId: body.taskId,

@@ -18,6 +18,22 @@ If you remember nothing else, remember this:
 
 ## System Diagram
 
+The high-level shape of the system: the browser is a control surface, the local
+runtime is the source of truth, and there are two execution paths behind it.
+
+```mermaid
+flowchart TD
+    UI["Browser UI — web-ui/src<br/>board · detail view · settings · terminal/chat"]
+    RT["Local Runtime — src/trpc/runtime-api.ts<br/>runtime-state-hub.ts (live fanout)"]
+    UI -- "tRPC requests + websocket updates" --> RT
+    RT --> PTY["PTY Runtime — src/terminal<br/>Claude Code, Codex, Gemini, OpenCode, Droid, Kiro"]
+    RT --> CLINE["Native Cline / Modrev — src/cline-sdk<br/>SDK session host"]
+    PTY --> WT["Per-task git worktrees<br/>CLI processes + workspace shell"]
+    CLINE --> SDK["@clinebot/core · @clinebot/llms · @clinebot/agents<br/>provider store · session host · persisted history"]
+```
+
+The same structure, in full detail:
+
 ```text
 +----------------------------------------------------------------------------------+
 | Browser UI                                                                       |

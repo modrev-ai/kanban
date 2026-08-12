@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
+import { ClaudeSetupCard } from "@/components/shared/claude-setup-card";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import { ModrevSetupSection } from "@/components/shared/modrev-setup-section";
 import {
@@ -43,6 +44,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import { useRuntimeSettingsClaudeController } from "@/hooks/use-runtime-settings-claude-controller";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
 import { useRuntimeSettingsModrevController } from "@/hooks/use-runtime-settings-modrev-controller";
@@ -470,6 +472,11 @@ export function RuntimeSettingsDialog({
 		selectedAgentId,
 		config,
 	});
+	const claudeSettings = useRuntimeSettingsClaudeController({
+		open,
+		workspaceId,
+		config,
+	});
 	const hasUnsavedChanges = useMemo(() => {
 		if (!config) {
 			return false;
@@ -888,6 +895,14 @@ export function RuntimeSettingsDialog({
 							onActiveAgentChange={setSelectedAgentId}
 							onError={setSaveError}
 							onSaved={handleClineSetupSaved}
+							claudeSetup={
+								<ClaudeSetupCard
+									controller={claudeSettings}
+									controlsDisabled={controlsDisabled}
+									onError={setSaveError}
+									onSaved={handleClineSetupSaved}
+								/>
+							}
 						/>
 					</div>
 

@@ -176,9 +176,12 @@ function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): Runt
 	};
 }
 
-function createRuntimeConfigState(): RuntimeConfigState {
+function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): RuntimeConfigState {
 	return {
-		selectedAgentId: "claude",
+		// Default to a terminal (external-CLI) agent so the generic PTY-path tests
+		// exercise TerminalSessionManager. `claude` is now a native SDK agent that
+		// routes through the Cline path, so it can't stand in for the terminal path.
+		selectedAgentId: "codex",
 		selectedShortcutLabel: null,
 		agentAutonomousModeEnabled: true,
 		readyForReviewNotificationsEnabled: true,
@@ -194,6 +197,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		modrevModelId: null,
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
+		...overrides,
 	};
 }
 

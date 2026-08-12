@@ -78,6 +78,7 @@ export async function saveClineProviderSettings(
 			projectId?: string | null;
 			region?: string | null;
 		};
+		setLastUsed?: boolean;
 	},
 ): Promise<RuntimeClineProviderSettings> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);

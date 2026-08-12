@@ -482,7 +482,7 @@ describe("CardDetailView", () => {
 		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeInstanceOf(HTMLDivElement);
 	});
 
-	it("shows terminal panel when task session agentId is claude even if global agent is cline", async () => {
+	it("shows terminal panel when task session agentId is a terminal agent even if global agent is cline", async () => {
 		await act(async () => {
 			root.render(
 				<CardDetailView
@@ -492,7 +492,7 @@ describe("CardDetailView", () => {
 					sessionSummary={{
 						taskId: "task-1",
 						state: "running",
-						agentId: "claude",
+						agentId: "codex",
 						workspacePath: null,
 						pid: null,
 						startedAt: null,
@@ -527,7 +527,7 @@ describe("CardDetailView", () => {
 				<CardDetailView
 					selection={createSelection()}
 					currentProjectId="workspace-1"
-					selectedAgentId="claude"
+					selectedAgentId="codex"
 					sessionSummary={null}
 					taskSessions={{}}
 					onSessionSummary={() => {}}

@@ -1,5 +1,5 @@
 import { Circle, CircleDot, Pencil, Plus, Trash2 } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 
 import {
 	ClineAddProviderDialog,
@@ -35,6 +35,7 @@ export function ModrevSetupSection({
 	workspaceId = null,
 	activeAgentId,
 	onActiveAgentChange,
+	claudeSetup,
 	onError,
 	onSaved,
 }: {
@@ -45,6 +46,8 @@ export function ModrevSetupSection({
 	activeAgentId: RuntimeAgentId;
 	/** Switch the default agent (e.g. to Claude Code or Modrev) when a model is chosen. */
 	onActiveAgentChange: (agentId: RuntimeAgentId) => void;
+	/** Claude's Anthropic key/model config, shown when Claude Code is selected. */
+	claudeSetup?: ReactNode;
 	onError?: (message: string | null) => void;
 	onSaved?: () => void;
 }): ReactElement {
@@ -134,8 +137,9 @@ export function ModrevSetupSection({
 		<>
 			<div className="mt-2">
 				<p className="text-text-secondary text-[12px] mt-0 mb-3">
-					Pick the default model for new tasks. Claude Code runs the installed CLI; Modrev models are custom
-					OpenAI-compatible endpoints you register below.
+					Pick the default model for new tasks. Claude Code runs natively through your Anthropic provider, so its
+					conversation is saved and shown in the chat view; Modrev models are custom OpenAI-compatible endpoints
+					you register below.
 				</p>
 
 				<button
@@ -156,10 +160,12 @@ export function ModrevSetupSection({
 					<span className="min-w-0">
 						<span className="block truncate text-[13px] text-text-primary">Claude Code</span>
 						<span className="block truncate text-text-secondary text-[11px]">
-							Anthropic CLI agent · always available
+							Native Anthropic agent · saved chat
 						</span>
 					</span>
 				</button>
+
+				{isClaudeActive && claudeSetup ? claudeSetup : null}
 
 				<div className="flex items-center justify-between mt-3 mb-1">
 					<p className="text-text-secondary text-[11px] font-semibold uppercase tracking-wider m-0">
