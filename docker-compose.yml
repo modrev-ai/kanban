@@ -1,0 +1,36 @@
+services:
+  kanban:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # The container runs as the non-root `node` user (uid/gid 1000). If your
+      # host user has a different uid/gid and you need writes to the bind-mounted
+      # repo below, rebuild with matching ids:
+      #   UID=$(id -u) GID=$(id -g) docker compose build
+      args:
+        UID: "${UID:-1000}"
+        GID: "${GID:-1000}"
+    image: modrev-kanban:local
+    # Publish only to the host loopback so the board is not exposed to your LAN.
+    # Change to "3484:3484" to expose it on all host interfaces.
+    ports:
+      - "127.0.0.1:${KANBAN_PORT:-3484}:3484"
+    environment:
+      # Bind inside the container so the published port is reachable.
+      KANBAN_RUNTIME_HOST: "0.0.0.0"
+      KANBAN_RUNTIME_PORT: "3484"
+      # Containers should not self-update.
+      KANBAN_NO_AUTO_UPDATE: "1"
+      # Set to 1 to skip the remote-access passcode (see docker-entrypoint.sh).
+      KANBAN_NO_PASSCODE: "${KANBAN_NO_PASSCODE:-}"
+    volumes:
+      # The git repo you want Kanban to manage. Override with:
+      #   KANBAN_PROJECT=/abs/path/to/repo docker compose up
+      - "${KANBAN_PROJECT:-./}:/workspace"
+      # Persist Kanban state (indexed projects, task worktrees, config).
+      # Lives under the non-root node user's home inside the container.
+      - "kanban-state:/home/node/.cline"
+    stop_grace_period: 30s
+
+volumes:
+  kanban-state:

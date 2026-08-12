@@ -1,0 +1,36 @@
+# Version control
+.git
+.gitignore
+
+# Node / build outputs (rebuilt inside the image)
+node_modules
+dist
+coverage
+web-ui/node_modules
+web-ui/dist
+packages/desktop/node_modules
+packages/desktop/out
+packages/desktop/cli
+
+# Runtime / dev artifacts
+.worktrees
+.sentry-artifacts
+test-results
+playwright-report
+
+# Local env files (never bake secrets into the image)
+.env
+.env.*
+web-ui/.env
+web-ui/.env.*
+
+# Editor / OS noise
+.DS_Store
+.vscode
+
+# Docker files themselves (not needed in the build context payload).
+# NOTE: docker-entrypoint.sh is intentionally NOT ignored — the Dockerfile
+# COPYs it into the runtime image, so it must stay in the build context.
+Dockerfile
+.dockerignore
+docker-compose.yml
