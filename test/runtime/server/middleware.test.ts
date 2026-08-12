@@ -7,9 +7,16 @@ import {
 	setKanbanRuntimeHost,
 	setKanbanRuntimePort,
 } from "../../../src/core/runtime-endpoint";
-import { evaluateCors, evaluateHost, getAllowedHostHeaders, handleSocketUpgrade } from "../../../src/server/middleware";
+import {
+	evaluateCors,
+	evaluateHost,
+	getAllowedHostHeaders,
+	getAllowedOrigins,
+	handleSocketUpgrade,
+} from "../../../src/server/middleware";
 
 const ALLOWED_ORIGIN = "http://127.0.0.1:3484";
+const ALLOWED_ORIGINS = new Set([ALLOWED_ORIGIN]);
 const ALLOWED_HOSTS = new Set(["localhost:3484", "127.0.0.1:3484"]);
 
 function makeFakeRequest(headers: Partial<IncomingMessage["headers"]>, method = "GET"): IncomingMessage {
@@ -21,7 +28,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: undefined,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -30,7 +37,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -39,7 +46,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "POST",
 			originHeader: ALLOWED_ORIGIN,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: ALLOWED_ORIGIN });
 	});
@@ -48,7 +55,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "POST",
 			originHeader: "http://evil.example.com",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://evil.example.com" });
 	});
@@ -57,7 +64,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "http://127.0.0.1:9999",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://127.0.0.1:9999" });
 	});
@@ -66,7 +73,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "https://127.0.0.1:3484",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "https://127.0.0.1:3484" });
 	});
@@ -75,7 +82,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: ALLOWED_ORIGIN,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "preflight", origin: ALLOWED_ORIGIN });
 	});
@@ -84,7 +91,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: "http://evil.example.com",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://evil.example.com" });
 	});
@@ -93,7 +100,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: undefined,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -206,5 +213,40 @@ describe("getAllowedHostHeaders", () => {
 		setKanbanRuntimeHost("0.0.0.0");
 		setKanbanRuntimePort(3484);
 		expect(getAllowedHostHeaders().has("attacker.example.com:3484")).toBe(false);
+	});
+});
+
+describe("getAllowedOrigins", () => {
+	const originalHost = getKanbanRuntimeHost();
+	const originalPort = getKanbanRuntimePort();
+
+	afterEach(() => {
+		setKanbanRuntimeHost(originalHost);
+		setKanbanRuntimePort(originalPort);
+	});
+
+	it("allows loopback origins when bound to loopback", () => {
+		setKanbanRuntimeHost("127.0.0.1");
+		setKanbanRuntimePort(3484);
+		const allowed = getAllowedOrigins();
+		expect(allowed.has("http://localhost:3484")).toBe(true);
+		expect(allowed.has("http://127.0.0.1:3484")).toBe(true);
+	});
+
+	it("still allows loopback origins in remote mode (0.0.0.0), plus the bound origin", () => {
+		setKanbanRuntimeHost("0.0.0.0");
+		setKanbanRuntimePort(3484);
+		const allowed = getAllowedOrigins();
+		// The app opened at http://localhost:PORT stamps that as the Origin on its
+		// own fetch/WS calls; without this they were rejected and the board went blank.
+		expect(allowed.has("http://localhost:3484")).toBe(true);
+		expect(allowed.has("http://127.0.0.1:3484")).toBe(true);
+		expect(allowed.has("http://0.0.0.0:3484")).toBe(true);
+	});
+
+	it("does not allow a foreign origin in remote mode", () => {
+		setKanbanRuntimeHost("0.0.0.0");
+		setKanbanRuntimePort(3484);
+		expect(getAllowedOrigins().has("http://attacker.example.com:3484")).toBe(false);
 	});
 });
