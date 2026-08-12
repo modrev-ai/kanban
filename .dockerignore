@@ -28,8 +28,9 @@ web-ui/.env.*
 .DS_Store
 .vscode
 
-# Docker files themselves (not needed in the build context payload)
+# Docker files themselves (not needed in the build context payload).
+# NOTE: docker-entrypoint.sh is intentionally NOT ignored — the Dockerfile
+# COPYs it into the runtime image, so it must stay in the build context.
 Dockerfile
 .dockerignore
 docker-compose.yml
-docker-entrypoint.sh
