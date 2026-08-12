@@ -1,7 +1,13 @@
 import type { IncomingMessage } from "node:http";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
-import { evaluateCors, evaluateHost, handleSocketUpgrade } from "../../../src/server/middleware";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	getKanbanRuntimeHost,
+	getKanbanRuntimePort,
+	setKanbanRuntimeHost,
+	setKanbanRuntimePort,
+} from "../../../src/core/runtime-endpoint";
+import { evaluateCors, evaluateHost, getAllowedHostHeaders, handleSocketUpgrade } from "../../../src/server/middleware";
 
 const ALLOWED_ORIGIN = "http://127.0.0.1:3484";
 const ALLOWED_HOSTS = new Set(["localhost:3484", "127.0.0.1:3484"]);
@@ -165,5 +171,40 @@ describe("handleSocketUpgrade", () => {
 		const result = handleSocketUpgrade(request, socket);
 		expect(result).toEqual({ end: true });
 		expect(socket.destroyed).toBe(true);
+	});
+});
+
+describe("getAllowedHostHeaders", () => {
+	const originalHost = getKanbanRuntimeHost();
+	const originalPort = getKanbanRuntimePort();
+
+	afterEach(() => {
+		setKanbanRuntimeHost(originalHost);
+		setKanbanRuntimePort(originalPort);
+	});
+
+	it("allows loopback host headers when bound to loopback", () => {
+		setKanbanRuntimeHost("127.0.0.1");
+		setKanbanRuntimePort(3484);
+		const allowed = getAllowedHostHeaders();
+		expect(allowed.has("localhost:3484")).toBe(true);
+		expect(allowed.has("127.0.0.1:3484")).toBe(true);
+	});
+
+	it("still allows loopback host headers in remote mode (0.0.0.0), plus the bound host", () => {
+		setKanbanRuntimeHost("0.0.0.0");
+		setKanbanRuntimePort(3484);
+		const allowed = getAllowedHostHeaders();
+		// The fix: loopback stays allowed so a container that binds 0.0.0.0 but is
+		// published on the host's loopback is reachable at http://localhost:PORT.
+		expect(allowed.has("localhost:3484")).toBe(true);
+		expect(allowed.has("127.0.0.1:3484")).toBe(true);
+		expect(allowed.has("0.0.0.0:3484")).toBe(true);
+	});
+
+	it("does not allow a foreign host header in remote mode", () => {
+		setKanbanRuntimeHost("0.0.0.0");
+		setKanbanRuntimePort(3484);
+		expect(getAllowedHostHeaders().has("attacker.example.com:3484")).toBe(false);
 	});
 });

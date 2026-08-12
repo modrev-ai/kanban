@@ -68,13 +68,21 @@ export function getAllowedHostHeaders(): ReadonlySet<string> {
 		allowed.add(`${host}:${port}`);
 	};
 
-	if (isKanbanRemoteHost()) {
-		addHostPort(boundHost);
-		return allowed;
-	}
-
+	// Loopback host headers are always allowed. They cannot be forged by a
+	// DNS-rebinding attacker (the browser sends the URL's own hostname as Host,
+	// and no external domain resolves to the literal "localhost"/"127.0.0.1"), and
+	// allowing them lets a server that binds 0.0.0.0 but is published only on the
+	// host's loopback — e.g. the Docker image on Docker Desktop — still be reached
+	// at http://localhost:PORT from any browser.
 	addHostPort("localhost");
 	addHostPort("127.0.0.1");
+
+	// When bound to a non-loopback address (0.0.0.0 in a container, or a LAN IP),
+	// also accept that address so direct hits to the bound host work.
+	if (isKanbanRemoteHost()) {
+		addHostPort(boundHost);
+	}
+
 	if (isDev) {
 		// Vite's default dev server host:port
 		allowed.add("localhost:4173");
