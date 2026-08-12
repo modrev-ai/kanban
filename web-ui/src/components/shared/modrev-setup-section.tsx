@@ -1,5 +1,5 @@
 import { Circle, CircleDot, Pencil, Plus, Trash2 } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 
 import {
 	ClineAddProviderDialog,
@@ -35,6 +35,7 @@ export function ModrevSetupSection({
 	workspaceId = null,
 	activeAgentId,
 	onActiveAgentChange,
+	claudeSetup,
 	onError,
 	onSaved,
 }: {
@@ -45,6 +46,8 @@ export function ModrevSetupSection({
 	activeAgentId: RuntimeAgentId;
 	/** Switch the default agent (e.g. to Claude Code or Modrev) when a model is chosen. */
 	onActiveAgentChange: (agentId: RuntimeAgentId) => void;
+	/** Claude's Anthropic key/model config, shown when Claude Code is selected. */
+	claudeSetup?: ReactNode;
 	onError?: (message: string | null) => void;
 	onSaved?: () => void;
 }): ReactElement {
@@ -161,6 +164,8 @@ export function ModrevSetupSection({
 						</span>
 					</span>
 				</button>
+
+				{isClaudeActive && claudeSetup ? claudeSetup : null}
 
 				<div className="flex items-center justify-between mt-3 mb-1">
 					<p className="text-text-secondary text-[11px] font-semibold uppercase tracking-wider m-0">

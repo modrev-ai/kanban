@@ -108,6 +108,7 @@ export function resolveAgentCommand(runtimeConfig: RuntimeConfigState): Resolved
 export function buildRuntimeConfigResponse(
 	runtimeConfig: RuntimeConfigState,
 	clineProviderSettings: RuntimeClineProviderSettings,
+	claudeProviderSettings: RuntimeClineProviderSettings,
 ): RuntimeConfigResponse {
 	const detectedCommands = detectInstalledCommands();
 	const agents = getCuratedDefinitions(runtimeConfig, detectedCommands);
@@ -127,6 +128,7 @@ export function buildRuntimeConfigResponse(
 		agents,
 		shortcuts: runtimeConfig.shortcuts,
 		clineProviderSettings,
+		claudeProviderSettings,
 		modrevProviderId: runtimeConfig.modrevProviderId,
 		modrevModelId: runtimeConfig.modrevModelId,
 		commitPromptTemplate: runtimeConfig.commitPromptTemplate,

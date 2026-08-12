@@ -140,7 +140,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 	] as const;
 
 	const buildConfigResponse = (runtimeConfig: RuntimeConfigState) =>
-		buildRuntimeConfigResponse(runtimeConfig, clineProviderService.getProviderSettingsSummary());
+		buildRuntimeConfigResponse(
+			runtimeConfig,
+			clineProviderService.getProviderSettingsSummary(),
+			clineProviderService.getProviderSettingsSummary(CLAUDE_NATIVE_PROVIDER_ID),
+		);
 
 	return {
 		loadConfig: async (workspaceScope) => {

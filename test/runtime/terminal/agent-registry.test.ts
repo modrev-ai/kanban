@@ -9,11 +9,24 @@ vi.mock("../../../src/terminal/command-discovery.js", () => ({
 }));
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import type { RuntimeClineProviderSettings } from "../../../src/core/api-contract";
 import {
 	buildRuntimeConfigResponse,
 	detectInstalledCommands,
 	resolveAgentCommand,
 } from "../../../src/terminal/agent-registry";
+
+const EMPTY_PROVIDER_SETTINGS: RuntimeClineProviderSettings = {
+	providerId: null,
+	modelId: null,
+	baseUrl: null,
+	apiKeyConfigured: false,
+	oauthProvider: null,
+	oauthAccessTokenConfigured: false,
+	oauthRefreshTokenConfigured: false,
+	oauthAccountId: null,
+	oauthExpiresAt: null,
+};
 
 function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): RuntimeConfigState {
 	return {
@@ -72,17 +85,7 @@ describe("buildRuntimeConfigResponse", () => {
 			agentAutonomousModeEnabled: true,
 		});
 
-		const response = buildRuntimeConfigResponse(config, {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(config, EMPTY_PROVIDER_SETTINGS, EMPTY_PROVIDER_SETTINGS);
 
 		expect(response.agentAutonomousModeEnabled).toBe(true);
 		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "codex", "cline", "modrev", "droid", "kiro"]);
@@ -101,17 +104,7 @@ describe("buildRuntimeConfigResponse", () => {
 		});
 		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "claude");
 
-		const response = buildRuntimeConfigResponse(config, {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(config, EMPTY_PROVIDER_SETTINGS, EMPTY_PROVIDER_SETTINGS);
 
 		expect(response.agentAutonomousModeEnabled).toBe(false);
 		expect(response.agents.map((agent) => agent.id)).toEqual(["claude", "codex", "cline", "modrev", "droid", "kiro"]);
@@ -131,33 +124,21 @@ describe("buildRuntimeConfigResponse", () => {
 
 	it("sets debug mode from runtime environment variables", () => {
 		process.env.KANBAN_DEBUG_MODE = "true";
-		const response = buildRuntimeConfigResponse(createRuntimeConfigState(), {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(
+			createRuntimeConfigState(),
+			EMPTY_PROVIDER_SETTINGS,
+			EMPTY_PROVIDER_SETTINGS,
+		);
 		expect(response.debugModeEnabled).toBe(true);
 	});
 
 	it("supports debug_mode fallback env name", () => {
 		process.env.debug_mode = "1";
-		const response = buildRuntimeConfigResponse(createRuntimeConfigState(), {
-			providerId: null,
-			modelId: null,
-			baseUrl: null,
-			apiKeyConfigured: false,
-			oauthProvider: null,
-			oauthAccessTokenConfigured: false,
-			oauthRefreshTokenConfigured: false,
-			oauthAccountId: null,
-			oauthExpiresAt: null,
-		});
+		const response = buildRuntimeConfigResponse(
+			createRuntimeConfigState(),
+			EMPTY_PROVIDER_SETTINGS,
+			EMPTY_PROVIDER_SETTINGS,
+		);
 		expect(response.debugModeEnabled).toBe(true);
 	});
 });

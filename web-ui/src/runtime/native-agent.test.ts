@@ -55,6 +55,17 @@ function createRuntimeConfigResponse(
 			oauthAccountId: "acct_123",
 			oauthExpiresAt: 123,
 		},
+		claudeProviderSettings: {
+			providerId: null,
+			modelId: null,
+			baseUrl: null,
+			apiKeyConfigured: false,
+			oauthProvider: null,
+			oauthAccessTokenConfigured: false,
+			oauthRefreshTokenConfigured: false,
+			oauthAccountId: null,
+			oauthExpiresAt: null,
+		},
 		commitPromptTemplate: "",
 		openPrPromptTemplate: "",
 		modrevProviderId: null,
@@ -227,10 +238,10 @@ describe("native-agent helpers", () => {
 	});
 
 	it("ignores non-launch agents when checking native CLI availability", () => {
-		// Claude is a native agent, so with no authenticated provider it falls back
+		// Cline is a native agent, so with no authenticated provider it falls back
 		// to checking for an installed launch-supported CLI. A non-launch agent
 		// (gemini) must not satisfy that fallback.
-		const config = createRuntimeConfigResponse("claude", {
+		const config = createRuntimeConfigResponse("cline", {
 			clineProviderSettings: {
 				providerId: null,
 				modelId: null,
@@ -255,6 +266,28 @@ describe("native-agent helpers", () => {
 			},
 		];
 		expect(isTaskAgentSetupSatisfied(config)).toBe(false);
+	});
+
+	it("gates the native Claude agent on its own anthropic provider slot", () => {
+		// An authenticated Cline provider must NOT satisfy Claude; only Claude's
+		// own anthropic slot does.
+		const unconfigured = createRuntimeConfigResponse("claude");
+		expect(isTaskAgentSetupSatisfied(unconfigured)).toBe(false);
+
+		const configured = createRuntimeConfigResponse("claude", {
+			claudeProviderSettings: {
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+				baseUrl: null,
+				apiKeyConfigured: true,
+				oauthProvider: null,
+				oauthAccessTokenConfigured: false,
+				oauthRefreshTokenConfigured: false,
+				oauthAccountId: null,
+				oauthExpiresAt: null,
+			},
+		});
+		expect(isTaskAgentSetupSatisfied(configured)).toBe(true);
 	});
 
 	it("selects the latest incoming chat message only for the matching task", () => {
