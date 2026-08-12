@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.1-modrev]
+
+- Choose the model for each task from a single dropdown that lists Claude Code alongside every registered Modrev model, and set the default for new tasks from the unified Models settings
+
 ## [1.0.0-modrev]
 
 - Added the Modrev agent: connect any OpenAI-compatible model using your own API key, base URL, and model ID
