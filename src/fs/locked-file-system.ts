@@ -44,17 +44,28 @@ export interface AtomicTextWriteOptions {
 	executable?: boolean;
 }
 
+// proper-lockfile refreshes each held lock's mtime on an internal timer and, if it
+// finds the lock was stolen or removed in the meantime, invokes `onCompromised`. Its
+// built-in default RETHROWS, and because that throw originates from the timer callback
+// (not from any awaited promise) it surfaces as an uncaughtException that kills the
+// whole process. On a resource-starved host a long event-loop stall lets the lock go
+// stale and another writer steal it — compromising ours through no fault of the
+// in-flight operation — so the default behavior turns a routine contention event into a
+// full server crash. Losing one lock must not take everyone down: log and keep running.
+// The atomic temp-file + rename writes bound the worst case to a lost update of a JSON
+// file that is trivially rebuilt, never a corrupt/partial file.
+function defaultOnCompromised(error: Error): void {
+	process.stderr.write(`[locked-file-system] lock compromised, continuing without it: ${error?.message ?? error}\n`);
+}
+
 function createLockOptions(request: LockRequest, lockfilePath: string): LockOptions {
-	const options: LockOptions = {
+	return {
 		stale: request.staleMs ?? DEFAULT_LOCK_STALE_MS,
 		retries: request.retries ?? DEFAULT_LOCK_RETRIES,
 		realpath: false,
 		lockfilePath,
+		onCompromised: request.onCompromised ?? defaultOnCompromised,
 	};
-	if (typeof request.onCompromised === "function") {
-		options.onCompromised = request.onCompromised;
-	}
-	return options;
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {
@@ -108,7 +119,16 @@ export class LockedFileSystem {
 			return await operation();
 		} finally {
 			for (const release of releases.reverse()) {
-				await release();
+				// Release best-effort: if a lock was compromised mid-operation (see
+				// defaultOnCompromised), proper-lockfile's release rejects because the
+				// lockfile is already gone. That must not mask the operation's result or
+				// escape as an unhandled rejection, so swallow and log it.
+				try {
+					await release();
+				} catch (releaseError) {
+					const message = releaseError instanceof Error ? releaseError.message : String(releaseError);
+					process.stderr.write(`[locked-file-system] failed to release lock (ignoring): ${message}\n`);
+				}
 			}
 		}
 	}
