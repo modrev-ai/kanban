@@ -53,17 +53,20 @@ import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
 
-// The built-in SDK provider the native Claude agent runs through.
-const CLAUDE_NATIVE_PROVIDER_ID = "anthropic";
+// The built-in SDK provider the native Claude agent runs through. The
+// "claude-code" provider authenticates with the user's Claude Pro/Max
+// subscription via the Claude Agent SDK (no Anthropic API key).
+const CLAUDE_NATIVE_PROVIDER_ID = "claude-code";
 
 // Native agents don't launch an external CLI; they resolve a provider/model
 // launch config for the Cline SDK runtime. Each native agent pins that config
 // differently:
 //   - modrev tracks its active model independently of the SDK's "last used"
 //     Cline provider, so it resolves from the Kanban-owned Modrev config.
-//   - claude always runs through the SDK's built-in "anthropic" provider, so its
-//     API key and model come from the "anthropic" provider settings slot (kept
-//     independent of the Cline agent's active provider).
+//   - claude always runs through the SDK's built-in "claude-code" provider,
+//     which uses the machine's Claude Pro/Max subscription login instead of an
+//     API key. Its model comes from the "claude-code" provider settings slot
+//     (kept independent of the Cline agent's active provider).
 //   - cline (and anything else) uses the SDK's currently selected provider.
 function resolveNativeAgentLaunchOverrides(
 	agentId: RuntimeAgentId,
@@ -272,7 +275,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				if (useClinePath) {
 					const hasTaskLevelClineSettingsOverride = body.clineSettings !== undefined;
 					// Native agents pin their provider/model differently (Modrev tracks
-					// its own selection, Claude runs through the built-in "anthropic"
+					// its own selection, Claude runs through the built-in "claude-code"
 					// provider). A per-task clineSettings override always wins.
 					const nativeOverrides = resolveNativeAgentLaunchOverrides(effectiveAgentId, scopedRuntimeConfig);
 					const providerIdOverride = body.clineSettings?.providerId ?? nativeOverrides.providerIdOverride;
@@ -286,7 +289,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 								}
 							: {}),
 					});
-					// Claude must run on the built-in "anthropic" provider. If that slot
+					// Claude must run on the built-in "claude-code" provider. If that slot
 					// isn't configured, resolveLaunchConfig falls back to the currently
 					// selected provider — which would silently run "Claude" on a different
 					// model. Fail with a clear setup message instead.
@@ -297,7 +300,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						return {
 							ok: false,
 							summary: null,
-							error: "Claude needs an Anthropic API key. Open Settings, configure the Anthropic provider and model, then start the task again.",
+							error: "Claude runs on your Claude Pro/Max subscription via Claude Code. Open Settings, configure the Claude agent, then start the task again.",
 						};
 					}
 					const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);

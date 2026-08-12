@@ -17,7 +17,7 @@ import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { ResizeHandle } from "@/resize/resize-handle";
 import { useCardDetailLayout } from "@/resize/use-card-detail-layout";
 import { useResizeDrag } from "@/resize/use-resize-drag";
-import { isNativeClineAgentSelected } from "@/runtime/native-agent";
+import { CLAUDE_NATIVE_PROVIDER_ID, isNativeClineAgentSelected } from "@/runtime/native-agent";
 import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
@@ -528,13 +528,13 @@ export function CardDetailView({
 				...(runtimeConfig.modrevModelId ? { modelId: runtimeConfig.modrevModelId } : {}),
 			};
 		}
-		// Claude runs through the built-in "anthropic" provider, so pin the chat
-		// panel's model selector to it (and its configured model) rather than the
-		// shared Cline provider selection.
+		// Claude runs through the built-in "claude-code" subscription provider, so
+		// pin the chat panel's model selector to it (and its configured model)
+		// rather than the shared Cline provider selection.
 		if (effectiveTaskAgentId === "claude") {
 			const claudeModelId = runtimeConfig?.claudeProviderSettings?.modelId;
 			return {
-				providerId: "anthropic",
+				providerId: CLAUDE_NATIVE_PROVIDER_ID,
 				...(claudeModelId ? { modelId: claudeModelId } : {}),
 			};
 		}

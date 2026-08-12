@@ -120,26 +120,6 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(existsSync(wrapperPath)).toBe(false);
 	});
 
-	it("appends Kanban sidebar instructions for home Claude sessions", async () => {
-		setupTempHome();
-		setKanbanProcessContext();
-		const launch = await prepareAgentLaunch({
-			taskId: "__home_agent__:workspace-1:claude",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			cwd: "/tmp",
-			prompt: "",
-		});
-
-		const appendPromptIndex = launch.args.indexOf("--append-system-prompt");
-		expect(appendPromptIndex).toBeGreaterThanOrEqual(0);
-		expect(launch.args[appendPromptIndex + 1]).toContain("Kanban sidebar agent");
-		expect(launch.args[appendPromptIndex + 1]).toContain(
-			"'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task create",
-		);
-	});
-
 	it("appends Kanban sidebar instructions for home Codex sessions", async () => {
 		setupTempHome();
 		setKanbanProcessContext();
@@ -185,28 +165,6 @@ describe("prepareAgentLaunch hook strategies", () => {
 		});
 
 		expect(getCodexConfigOverrideValues(launch.args, "check_for_update_on_startup")).toEqual(["true"]);
-	});
-
-	it("writes Claude settings with explicit permission hook", async () => {
-		setupTempHome();
-		await prepareAgentLaunch({
-			taskId: "task-1",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			cwd: "/tmp",
-			prompt: "",
-			workspaceId: "workspace-1",
-		});
-
-		const settingsPath = join(homedir(), ".cline", "kanban", "hooks", "claude", "settings.json");
-		const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
-			hooks?: Record<string, unknown>;
-		};
-		expect(settings.hooks?.PermissionRequest).toBeDefined();
-		expect(settings.hooks?.PreToolUse).toBeDefined();
-		expect(settings.hooks?.PostToolUse).toBeDefined();
-		expect(settings.hooks?.PostToolUseFailure).toBeDefined();
 	});
 
 	it("writes Gemini settings with AfterTool mapped to to_in_progress", async () => {
@@ -539,17 +497,6 @@ describe("prepareAgentLaunch hook strategies", () => {
 		});
 		expect(codexLaunch.args).toEqual(expect.arrayContaining(["resume", "--last"]));
 
-		const claudeLaunch = await prepareAgentLaunch({
-			taskId: "task-claude",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			cwd: "/tmp",
-			prompt: "",
-			resumeFromTrash: true,
-		});
-		expect(claudeLaunch.args).toContain("--continue");
-
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini",
 			agentId: "gemini",
@@ -639,21 +586,6 @@ describe("prepareAgentLaunch hook strategies", () => {
 	it("applies autonomous mode flags in adapters for non-droid CLIs", async () => {
 		setupTempHome();
 
-		const claudeLaunch = await prepareAgentLaunch({
-			taskId: "task-claude-auto",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			autonomousModeEnabled: true,
-			cwd: "/tmp",
-			prompt: "",
-		});
-		const permissionModeIndex = claudeLaunch.args.indexOf("--permission-mode");
-		expect(permissionModeIndex).toBeGreaterThan(-1);
-		expect(claudeLaunch.args[permissionModeIndex + 1]).toBe("auto");
-		expect(claudeLaunch.args).not.toContain("--dangerously-skip-permissions");
-		expect(claudeLaunch.env.CLAUDE_CODE_ENABLE_AUTO_MODE).toBe("1");
-
 		const codexLaunch = await prepareAgentLaunch({
 			taskId: "task-codex-auto",
 			agentId: "codex",
@@ -699,72 +631,8 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(clineLaunch.args).toContain("--auto-approve-all");
 	});
 
-	it("does not add a Claude permission mode when args already set one", async () => {
-		setupTempHome();
-		const launch = await prepareAgentLaunch({
-			taskId: "task-claude-explicit-mode",
-			agentId: "claude",
-			binary: "claude",
-			args: ["--permission-mode", "acceptEdits"],
-			autonomousModeEnabled: true,
-			cwd: "/tmp",
-			prompt: "",
-		});
-		expect(launch.args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
-		expect(launch.args).not.toContain("auto");
-	});
-
-	it("starts Claude plan mode without bypass flags and keeps auto mode reachable", async () => {
-		setupTempHome();
-		const launch = await prepareAgentLaunch({
-			taskId: "task-claude-plan",
-			agentId: "claude",
-			binary: "claude",
-			args: [],
-			autonomousModeEnabled: true,
-			cwd: "/tmp",
-			prompt: "",
-			startInPlanMode: true,
-		});
-		const permissionModeIndex = launch.args.indexOf("--permission-mode");
-		expect(permissionModeIndex).toBeGreaterThan(-1);
-		expect(launch.args[permissionModeIndex + 1]).toBe("plan");
-		expect(launch.args).not.toContain("--dangerously-skip-permissions");
-		expect(launch.args).not.toContain("--allow-dangerously-skip-permissions");
-		expect(launch.env.CLAUDE_CODE_ENABLE_AUTO_MODE).toBe("1");
-	});
-
-	it("strips an explicit Claude bypass arg in plan mode", async () => {
-		setupTempHome();
-		const launch = await prepareAgentLaunch({
-			taskId: "task-claude-plan-bypass",
-			agentId: "claude",
-			binary: "claude",
-			args: ["--dangerously-skip-permissions"],
-			autonomousModeEnabled: false,
-			cwd: "/tmp",
-			prompt: "",
-			startInPlanMode: true,
-		});
-		expect(launch.args).not.toContain("--dangerously-skip-permissions");
-		expect(launch.args).not.toContain("--allow-dangerously-skip-permissions");
-		const permissionModeIndex = launch.args.indexOf("--permission-mode");
-		expect(launch.args[permissionModeIndex + 1]).toBe("plan");
-	});
-
 	it("preserves explicit autonomous args when autonomous mode is disabled", async () => {
 		setupTempHome();
-
-		const claudeLaunch = await prepareAgentLaunch({
-			taskId: "task-claude-no-auto",
-			agentId: "claude",
-			binary: "claude",
-			args: ["--dangerously-skip-permissions"],
-			autonomousModeEnabled: false,
-			cwd: "/tmp",
-			prompt: "",
-		});
-		expect(claudeLaunch.args).toContain("--dangerously-skip-permissions");
 
 		const codexLaunch = await prepareAgentLaunch({
 			taskId: "task-codex-no-auto",

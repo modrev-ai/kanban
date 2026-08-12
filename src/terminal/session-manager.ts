@@ -1,6 +1,7 @@
-// PTY-backed runtime for non-Cline task sessions and the workspace shell terminal.
+// PTY-backed runtime for non-native task sessions and the workspace shell terminal.
 // It owns process lifecycle, terminal protocol filtering, and summary updates
-// for command-driven agents such as Claude Code, Codex, Gemini, and shell sessions.
+// for command-driven agents such as Codex, Gemini, and shell sessions. Native
+// agents (Cline, Modrev, Claude) run through the Cline SDK runtime instead.
 import type {
 	RuntimeTaskHookActivity,
 	RuntimeTaskImage,
@@ -15,12 +16,6 @@ import {
 	type AgentOutputTransitionInspectionPredicate,
 	prepareAgentLaunch,
 } from "./agent-session-adapters";
-import {
-	hasClaudeWorkspaceTrustPrompt,
-	shouldAutoConfirmClaudeWorkspaceTrust,
-	stopWorkspaceTrustTimers,
-	WORKSPACE_TRUST_CONFIRM_DELAY_MS,
-} from "./claude-workspace-trust";
 import { hasCodexWorkspaceTrustPrompt, shouldAutoConfirmCodexWorkspaceTrust } from "./codex-workspace-trust";
 import { stripAnsi } from "./output-utils";
 import { PtySession } from "./pty-session";
@@ -33,6 +28,7 @@ import {
 } from "./terminal-protocol-filter";
 import type { TerminalSessionListener, TerminalSessionService } from "./terminal-session-service";
 import { TerminalStateMirror } from "./terminal-state-mirror";
+import { stopWorkspaceTrustTimers, WORKSPACE_TRUST_CONFIRM_DELAY_MS } from "./workspace-trust";
 
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
 const AUTO_RESTART_WINDOW_MS = 5_000;
@@ -382,9 +378,8 @@ export class TerminalSessionManager implements TerminalSessionService {
 							);
 						}
 						if (!entry.active.autoConfirmedWorkspaceTrust && entry.active.workspaceTrustConfirmTimer === null) {
-							const hasClaudePrompt = hasClaudeWorkspaceTrustPrompt(entry.active.workspaceTrustBuffer);
 							const hasCodexPrompt = hasCodexWorkspaceTrustPrompt(entry.active.workspaceTrustBuffer);
-							if (hasClaudePrompt || hasCodexPrompt) {
+							if (hasCodexPrompt) {
 								entry.active.autoConfirmedWorkspaceTrust = true;
 								const trustConfirmDelayMs = WORKSPACE_TRUST_CONFIRM_DELAY_MS;
 								entry.active.workspaceTrustConfirmTimer = setTimeout(() => {
@@ -507,11 +502,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		const active: ActiveProcessState = {
 			session,
 			workspaceTrustBuffer:
-				shouldAutoConfirmClaudeWorkspaceTrust(request.agentId, request.cwd) ||
-				shouldAutoConfirmCodexWorkspaceTrust(request.agentId, request.cwd) ||
-				hasCodexLaunchSignature
-					? ""
-					: null,
+				shouldAutoConfirmCodexWorkspaceTrust(request.agentId, request.cwd) || hasCodexLaunchSignature ? "" : null,
 			cols,
 			rows,
 			terminalProtocolFilter: createTerminalProtocolFilterState({
