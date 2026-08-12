@@ -227,7 +227,22 @@ describe("native-agent helpers", () => {
 	});
 
 	it("ignores non-launch agents when checking native CLI availability", () => {
-		const config = createRuntimeConfigResponse("claude");
+		// Claude is a native agent, so with no authenticated provider it falls back
+		// to checking for an installed launch-supported CLI. A non-launch agent
+		// (gemini) must not satisfy that fallback.
+		const config = createRuntimeConfigResponse("claude", {
+			clineProviderSettings: {
+				providerId: null,
+				modelId: null,
+				baseUrl: null,
+				apiKeyConfigured: false,
+				oauthProvider: null,
+				oauthAccessTokenConfigured: false,
+				oauthRefreshTokenConfigured: false,
+				oauthAccountId: null,
+				oauthExpiresAt: null,
+			},
+		});
 		config.agents = [
 			{
 				id: "gemini",

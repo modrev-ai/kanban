@@ -287,8 +287,8 @@ describe("useHomeAgentSession", () => {
 			root.render(
 				<HookHarness
 					config={createRuntimeConfig({
-						selectedAgentId: "claude",
-						effectiveCommand: "claude --dangerously-skip-permissions",
+						selectedAgentId: "droid",
+						effectiveCommand: "droid --auto high",
 					})}
 					currentProjectId="workspace-1"
 					onSnapshot={(snapshot) => {
@@ -301,7 +301,7 @@ describe("useHomeAgentSession", () => {
 
 		const rotatedSnapshot = requireSnapshot(latestSnapshot);
 		expect(rotatedSnapshot.panelMode).toBe("terminal");
-		expect(rotatedSnapshot.taskId).toMatch(/^__home_agent__:workspace-1:claude$/);
+		expect(rotatedSnapshot.taskId).toMatch(/^__home_agent__:workspace-1:droid$/);
 		expect(rotatedSnapshot.taskId).not.toBe(initialTaskId);
 		expect(startTaskSessionMutateMock).toHaveBeenCalledTimes(2);
 		expect(stopTaskSessionMutateMock).toHaveBeenCalledWith({
@@ -602,8 +602,8 @@ describe("useHomeAgentSession", () => {
 			root.render(
 				<HookHarness
 					config={createRuntimeConfig({
-						selectedAgentId: "claude",
-						effectiveCommand: "claude --dangerously-skip-permissions",
+						selectedAgentId: "droid",
+						effectiveCommand: "droid --auto high",
 					})}
 					currentProjectId="workspace-1"
 					onSnapshot={(snapshot) => {
@@ -615,7 +615,7 @@ describe("useHomeAgentSession", () => {
 		});
 
 		const secondTaskId = requireTaskId(requireSnapshot(latestSnapshot).taskId);
-		expect(secondTaskId).toMatch(/^__home_agent__:workspace-1:claude$/);
+		expect(secondTaskId).toMatch(/^__home_agent__:workspace-1:droid$/);
 		expect(secondTaskId).not.toBe(firstTaskId);
 		expect(stopTaskSessionMutateMock).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
@@ -630,7 +630,7 @@ describe("useHomeAgentSession", () => {
 			await createFlushPromises();
 			secondStart.resolve({
 				ok: true,
-				summary: createSummary(secondTaskId, "claude"),
+				summary: createSummary(secondTaskId, "droid"),
 			});
 			await createFlushPromises();
 		});

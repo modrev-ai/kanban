@@ -47,12 +47,14 @@ beforeEach(() => {
 
 describe("agent-registry", () => {
 	it("detects installed commands from the inherited PATH", () => {
-		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "claude");
+		// `claude` is a native SDK agent with no binary, so it is not probed on
+		// PATH; `codex` stands in as an external-CLI agent here.
+		commandDiscoveryMocks.isBinaryAvailableOnPath.mockImplementation((binary: string) => binary === "codex");
 
 		const detected = detectInstalledCommands();
 
-		expect(detected).toEqual(["claude"]);
-		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(8);
+		expect(detected).toEqual(["codex"]);
+		expect(commandDiscoveryMocks.isBinaryAvailableOnPath).toHaveBeenCalledTimes(7);
 	});
 
 	it("treats shell-only agents as unavailable", () => {
@@ -119,7 +121,9 @@ describe("buildRuntimeConfigResponse", () => {
 		expect(response.agents.find((agent) => agent.id === "droid")?.defaultArgs).toEqual([]);
 		expect(response.agents.find((agent) => agent.id === "kiro")?.defaultArgs).toEqual(["chat"]);
 		expect(response.agents.find((agent) => agent.id === "cline")?.installed).toBe(true);
-		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("claude");
+		// Claude is native (no binary), so it has no launchable CLI command.
+		expect(response.agents.find((agent) => agent.id === "claude")?.command).toBe("");
+		expect(response.agents.find((agent) => agent.id === "claude")?.installed).toBe(true);
 		expect(response.agents.find((agent) => agent.id === "codex")?.command).toBe("codex");
 		expect(response.agents.find((agent) => agent.id === "droid")?.command).toBe("droid");
 		expect(response.agents.find((agent) => agent.id === "kiro")?.command).toBe("kiro-cli chat");
