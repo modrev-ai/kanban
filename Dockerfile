@@ -56,10 +56,20 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends git openssh-client ca-certificates tini \
 	&& rm -rf /var/lib/apt/lists/*
 
+# Run as a non-root user. The node image already ships a `node` user/group at
+# uid/gid 1000; reuse it, remapping the ids when the UID/GID build args are set
+# so a bind-mounted repo owned by the host user stays writable, e.g.:
+#   docker compose build --build-arg UID=$(id -u) --build-arg GID=$(id -g)
+ARG UID=1000
+ARG GID=1000
+RUN if [ "$GID" != "1000" ]; then groupmod --gid "$GID" node; fi \
+	&& if [ "$UID" != "1000" ]; then usermod --uid "$UID" node; fi
+
 ENV NODE_ENV=production \
 	KANBAN_RUNTIME_HOST=0.0.0.0 \
 	KANBAN_RUNTIME_PORT=3484 \
-	KANBAN_NO_AUTO_UPDATE=1
+	KANBAN_NO_AUTO_UPDATE=1 \
+	HOME=/home/node
 
 # The built bundle plus the pruned production dependency tree (node-pty and the
 # handful of packages the bundle require()s dynamically at run time).
@@ -67,20 +77,26 @@ COPY --from=builder /app/dist /opt/kanban/dist
 COPY --from=builder /app/package.json /opt/kanban/package.json
 COPY --from=builder /app/node_modules /opt/kanban/node_modules
 
-# Expose the CLI on PATH and prepare git for operating on mounted repos that
-# are owned by a different (host) uid.
-RUN chmod +x /opt/kanban/dist/cli.js \
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+# Expose the CLI on PATH, create the state + workspace dirs, and hand ownership
+# to the non-root user so bind mounts, the state volume, and git all work.
+RUN chmod +x /opt/kanban/dist/cli.js /usr/local/bin/docker-entrypoint.sh \
 	&& ln -s /opt/kanban/dist/cli.js /usr/local/bin/kanban \
-	&& git config --global --add safe.directory '*' \
+	&& mkdir -p /workspace /home/node/.cline \
+	&& chown -R node:node /home/node /workspace /opt/kanban
+
+USER node
+
+# Prepare git for operating on mounted repos owned by a different (host) uid.
+# Runs as the node user, so this writes to /home/node/.gitconfig.
+RUN git config --global --add safe.directory '*' \
 	&& git config --global user.name "Kanban" \
 	&& git config --global user.email "kanban@localhost" \
 	&& git config --global init.defaultBranch main
 
 # /workspace is where you mount the git repo Kanban should manage.
 WORKDIR /workspace
-
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3484
 

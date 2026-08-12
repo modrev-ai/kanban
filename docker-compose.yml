@@ -3,6 +3,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # The container runs as the non-root `node` user (uid/gid 1000). If your
+      # host user has a different uid/gid and you need writes to the bind-mounted
+      # repo below, rebuild with matching ids:
+      #   UID=$(id -u) GID=$(id -g) docker compose build
+      args:
+        UID: "${UID:-1000}"
+        GID: "${GID:-1000}"
     image: modrev-kanban:local
     # Publish only to the host loopback so the board is not exposed to your LAN.
     # Change to "3484:3484" to expose it on all host interfaces.
@@ -21,7 +28,8 @@ services:
       #   KANBAN_PROJECT=/abs/path/to/repo docker compose up
       - "${KANBAN_PROJECT:-./}:/workspace"
       # Persist Kanban state (indexed projects, task worktrees, config).
-      - "kanban-state:/root/.cline"
+      # Lives under the non-root node user's home inside the container.
+      - "kanban-state:/home/node/.cline"
     stop_grace_period: 30s
 
 volumes:

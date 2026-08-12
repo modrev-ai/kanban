@@ -53,7 +53,7 @@ docker build -t modrev-kanban:local .
 docker run --rm -it \
   -p 127.0.0.1:3484:3484 \
   -v "$PWD:/workspace" \
-  -v kanban-state:/root/.cline \
+  -v kanban-state:/home/node/.cline \
   modrev-kanban:local
 ```
 
@@ -72,9 +72,11 @@ docker run --rm -it \
 
 - **`/workspace`** — the git repository Kanban manages. Mount your project
   here (it must be a git repo).
-- **`/root/.cline`** — Kanban's state: indexed projects, task worktrees, and
-  config. The compose file keeps this in the named volume `kanban-state` so
-  your board survives `docker compose down` and restarts.
+- **`/home/node/.cline`** — Kanban's state: indexed projects, task worktrees,
+  and config. It lives under the non-root `node` user's home (see
+  [Non-root user](#non-root-user)). The compose file keeps this in the named
+  volume `kanban-state` so your board survives `docker compose down` and
+  restarts.
 
 ## Why 0.0.0.0 and not localhost
 
@@ -95,7 +97,7 @@ Two working options:
    ```bash
    docker run --rm -it --network host \
      -e KANBAN_RUNTIME_HOST=127.0.0.1 \
-     -v "$PWD:/workspace" -v kanban-state:/root/.cline \
+     -v "$PWD:/workspace" -v kanban-state:/home/node/.cline \
      modrev-kanban:local
    # → http://localhost:3484 (no passcode, loopback only)
    ```
@@ -120,12 +122,35 @@ Build and run it in place of `modrev-kanban:local`, and pass the agent's
 credentials at runtime (e.g. `-e ANTHROPIC_API_KEY=...` or by mounting the
 agent's config directory). Never bake API keys into the image.
 
+## Non-root user
+
+The container runs as the non-root `node` user (uid/gid `1000`), which the base
+`node` image already ships. State lives under that user's home
+(`/home/node/.cline`) and `git config --global --add safe.directory '*'` is set
+so git still trusts a bind-mounted repo owned by a different (host) uid.
+
+Reads from a bind-mounted repo work regardless of uid. **Writes** to the
+bind-mounted repo need the container user to own (or be able to write) those
+files. If your host uid/gid is not `1000`, rebuild the image with matching ids
+so the `node` user is remapped to them:
+
+```bash
+# Compose (the compose file forwards these as build args):
+UID=$(id -u) GID=$(id -g) docker compose build
+UID=$(id -u) GID=$(id -g) docker compose up
+
+# Plain Docker:
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t modrev-kanban:local .
+```
+
+On Docker Desktop (macOS/Windows) the file-sharing layer maps ownership for you,
+so the default `1000` usually just works.
+
 ## Security notes
 
 - The compose file publishes the port on `127.0.0.1` only, so the board is not
   exposed to your LAN. Change the mapping to `3484:3484` (all interfaces) only
   if you understand the exposure and keep the passcode enabled.
-- The container runs as `root` so it can operate on bind-mounted repos owned by
-  arbitrary host UIDs, and `git config --global --add safe.directory '*'` is
-  set for the same reason. Keep the image local; do not push it to a public
-  registry with credentials mounted.
+- The container runs as a non-root user (see [Non-root user](#non-root-user)).
+  Keep the image local; do not push it to a public registry with credentials
+  mounted.
