@@ -528,9 +528,20 @@ export function CardDetailView({
 				...(runtimeConfig.modrevModelId ? { modelId: runtimeConfig.modrevModelId } : {}),
 			};
 		}
+		// Claude runs through the built-in "anthropic" provider, so pin the chat
+		// panel's model selector to it (and its configured model) rather than the
+		// shared Cline provider selection.
+		if (effectiveTaskAgentId === "claude") {
+			const claudeModelId = runtimeConfig?.claudeProviderSettings?.modelId;
+			return {
+				providerId: "anthropic",
+				...(claudeModelId ? { modelId: claudeModelId } : {}),
+			};
+		}
 		return undefined;
 	}, [
 		effectiveTaskAgentId,
+		runtimeConfig?.claudeProviderSettings?.modelId,
 		runtimeConfig?.modrevModelId,
 		runtimeConfig?.modrevProviderId,
 		selection.card.clineSettings,

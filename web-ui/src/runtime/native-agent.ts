@@ -63,10 +63,18 @@ export function isClineOauthAuthenticated(settings: RuntimeClineProviderSettings
 }
 
 export function isTaskAgentSetupSatisfied(
-	config: Pick<RuntimeConfigResponse, "selectedAgentId" | "agents" | "clineProviderSettings"> | null | undefined,
+	config:
+		| Pick<RuntimeConfigResponse, "selectedAgentId" | "agents" | "clineProviderSettings" | "claudeProviderSettings">
+		| null
+		| undefined,
 ): boolean | null {
 	if (!config) {
 		return null;
+	}
+	// Claude runs on its own built-in "anthropic" provider slot, so it is set up
+	// only when that slot is authenticated (independent of the Cline provider).
+	if (config.selectedAgentId === "claude") {
+		return isClineProviderAuthenticated(config.claudeProviderSettings);
 	}
 	if (isNativeClineAgentSelected(config.selectedAgentId)) {
 		if (isClineProviderAuthenticated(getRuntimeClineProviderSettings(config))) {
@@ -80,7 +88,10 @@ export function isTaskAgentSetupSatisfied(
 }
 
 export function getTaskAgentNavbarHint(
-	config: Pick<RuntimeConfigResponse, "selectedAgentId" | "agents" | "clineProviderSettings"> | null | undefined,
+	config:
+		| Pick<RuntimeConfigResponse, "selectedAgentId" | "agents" | "clineProviderSettings" | "claudeProviderSettings">
+		| null
+		| undefined,
 	options?: {
 		shouldUseNavigationPath?: boolean;
 	},

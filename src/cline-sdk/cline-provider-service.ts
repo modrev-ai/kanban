@@ -465,8 +465,11 @@ async function refreshManagedOauthSettings(
 }
 
 export function createClineProviderService() {
-	const getProviderSettingsSummary = (): RuntimeClineProviderSettings =>
-		toProviderSettingsSummary(getSelectedProviderSettings());
+	// Returns the summary for a specific provider's stored settings when a
+	// providerId is given (read back independently of the selected provider), or
+	// the currently selected provider's summary otherwise.
+	const getProviderSettingsSummary = (providerId?: string): RuntimeClineProviderSettings =>
+		toProviderSettingsSummary(providerId ? getSdkProviderSettings(providerId) : getSelectedProviderSettings());
 
 	// Dedup concurrent fetchSdkClineAccountProfile calls (e.g. balance + orgs on dialog open).
 	// Cached for 5s so back-to-back callers share a single network round-trip.
@@ -494,8 +497,8 @@ export function createClineProviderService() {
 	}
 
 	return {
-		getProviderSettingsSummary(): RuntimeClineProviderSettings {
-			return getProviderSettingsSummary();
+		getProviderSettingsSummary(providerId?: string): RuntimeClineProviderSettings {
+			return getProviderSettingsSummary(providerId);
 		},
 
 		async getClineAccountProfile(): Promise<RuntimeClineAccountProfileResponse> {
@@ -1008,6 +1011,7 @@ export function createClineProviderService() {
 				projectId?: string | null;
 				region?: string | null;
 			};
+			setLastUsed?: boolean;
 		}): RuntimeClineProviderSettingsSaveResponse {
 			const providerId = input.providerId.trim().toLowerCase();
 			if (!providerId) {
@@ -1172,7 +1176,7 @@ export function createClineProviderService() {
 			saveSdkProviderSettings({
 				settings: nextSettings,
 				tokenSource: hasOauthAccessToken(nextSettings) ? "oauth" : "manual",
-				setLastUsed: true,
+				setLastUsed: input.setLastUsed ?? true,
 			});
 
 			return toProviderSettingsSummary(nextSettings);

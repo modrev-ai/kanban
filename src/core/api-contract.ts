@@ -831,6 +831,11 @@ export const runtimeClineProviderSettingsSaveRequestSchema = z.object({
 			region: z.string().nullable().optional(),
 		})
 		.optional(),
+	// When false, saves the provider's settings without making it the SDK's
+	// "last used" provider. Used by the native Claude agent to configure the
+	// built-in "anthropic" slot independently of the Cline agent's active
+	// provider. Defaults to true.
+	setLastUsed: z.boolean().optional(),
 });
 export type RuntimeClineProviderSettingsSaveRequest = z.infer<typeof runtimeClineProviderSettingsSaveRequestSchema>;
 
@@ -982,6 +987,10 @@ export const runtimeConfigResponseSchema = z.object({
 	agents: z.array(runtimeAgentDefinitionSchema),
 	shortcuts: z.array(runtimeProjectShortcutSchema),
 	clineProviderSettings: runtimeClineProviderSettingsSchema,
+	// The built-in "anthropic" provider slot that the native Claude agent runs
+	// through, surfaced independently of the selected Cline provider above so the
+	// Claude settings entry can show its own configured state and model.
+	claudeProviderSettings: runtimeClineProviderSettingsSchema,
 	// The Modrev agent's active model, tracked independently of the Cline
 	// provider selection above.
 	modrevProviderId: z.string().nullable(),

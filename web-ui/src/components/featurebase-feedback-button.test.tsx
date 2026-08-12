@@ -74,12 +74,12 @@ describe("FeaturebaseFeedbackButton", () => {
 		return null;
 	}
 
-	it("renders nothing when selected agent is not Cline", () => {
+	it("renders nothing when selected agent is not a native agent", () => {
 		const { state: fbState } = createFeaturebaseFeedbackState("ready");
 		act(() => {
 			root.render(
 				<FeaturebaseFeedbackButton
-					selectedAgentId={"claude"}
+					selectedAgentId={"codex"}
 					clineProviderSettings={authenticatedClineSettings}
 					featurebaseFeedbackState={fbState}
 				/>,

@@ -11,11 +11,17 @@ export interface RuntimeAgentCatalogEntry {
 
 export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	{
+		// Claude is a native, in-app-authenticated agent. It runs through the same
+		// Cline SDK runtime as Modrev/Cline (so its conversation is saved and
+		// rendered in the Kanban chat UI rather than a raw CLI terminal), pinned to
+		// the SDK's built-in "anthropic" provider configured with an Anthropic API
+		// key and model in Settings. It is never launched as an external CLI, so it
+		// has no binary.
 		id: "claude",
 		label: "Claude Code",
-		binary: "claude",
+		binary: "",
 		baseArgs: [],
-		autonomousArgs: ["--permission-mode", "auto"],
+		autonomousArgs: [],
 		installUrl: "https://docs.anthropic.com/en/docs/claude-code/quickstart",
 	},
 	{
@@ -103,7 +109,11 @@ export function isRuntimeAgentLaunchSupported(agentId: RuntimeAgentId): boolean 
 // rather than launching an external CLI binary. They are always considered
 // "installed" and their auth is configured in-app (provider settings) instead
 // of via a command-line tool on PATH.
-export const RUNTIME_NATIVE_CLINE_AGENT_IDS: readonly RuntimeAgentId[] = ["cline", "modrev"];
+//
+// Claude is native too: it drives the Cline runtime through the SDK's built-in
+// "anthropic" provider, so its conversation is persisted and shown in the
+// Kanban chat UI just like Cline/Modrev (never a raw CLI terminal).
+export const RUNTIME_NATIVE_CLINE_AGENT_IDS: readonly RuntimeAgentId[] = ["cline", "modrev", "claude"];
 
 const RUNTIME_NATIVE_CLINE_AGENT_ID_SET = new Set<RuntimeAgentId>(RUNTIME_NATIVE_CLINE_AGENT_IDS);
 
