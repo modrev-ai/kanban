@@ -42,6 +42,13 @@ RUN npm run build
 # and drop devDependencies to slim the image.
 RUN npm prune --omit=dev
 
+# The Claude native agent ships prebuilt CLI binaries as per-platform optional
+# packages. npm installs the musl variant here even though this image is glibc
+# (Debian), and @anthropic-ai/claude-agent-sdk's resolver prefers musl first — so
+# it picks a binary that can't exec on glibc ("native binary not found"). Drop the
+# musl variants so the resolver falls through to the working glibc build.
+RUN rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-*-musl
+
 # ---------------------------------------------------------------------------
 # Stage 2: runtime
 # A slim image that ships only what the server needs at run time: the built
