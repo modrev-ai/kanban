@@ -7,8 +7,22 @@ import type {
 	RuntimeTaskChatMessage,
 } from "@/runtime/types";
 
+// The built-in SDK provider the native Claude agent runs through. The
+// "claude-code" provider authenticates with the user's Claude Pro/Max
+// subscription (via the Claude Agent SDK) rather than an Anthropic API key.
+export const CLAUDE_NATIVE_PROVIDER_ID = "claude-code";
+
 export function isNativeClineAgentSelected(agentId: RuntimeAgentId | null | undefined): boolean {
 	return isNativeClineRuntimeAgent(agentId);
+}
+
+// Claude authenticates through its Claude Pro/Max subscription, which stores no
+// secret in the provider slot. It is considered configured once the
+// "claude-code" provider slot has been selected (i.e. a model saved).
+export function isClaudeSubscriptionConfigured(
+	settings: Pick<RuntimeClineProviderSettings, "providerId"> | null | undefined,
+): boolean {
+	return settings?.providerId === CLAUDE_NATIVE_PROVIDER_ID;
 }
 
 export function getRuntimeClineProviderSettings(
@@ -71,10 +85,11 @@ export function isTaskAgentSetupSatisfied(
 	if (!config) {
 		return null;
 	}
-	// Claude runs on its own built-in "anthropic" provider slot, so it is set up
-	// only when that slot is authenticated (independent of the Cline provider).
+	// Claude runs on its own built-in "claude-code" provider slot, authenticated
+	// by the user's Claude Pro/Max subscription (no API key). It is set up once
+	// that slot is selected (independent of the Cline provider).
 	if (config.selectedAgentId === "claude") {
-		return isClineProviderAuthenticated(config.claudeProviderSettings);
+		return isClaudeSubscriptionConfigured(config.claudeProviderSettings);
 	}
 	if (isNativeClineAgentSelected(config.selectedAgentId)) {
 		if (isClineProviderAuthenticated(getRuntimeClineProviderSettings(config))) {
