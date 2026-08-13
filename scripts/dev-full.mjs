@@ -50,7 +50,9 @@ function findPort(start, reserved = new Set()) {
 	});
 }
 
-function waitForPort(port, timeout = 15000) {
+// tsx watch has to typecheck-free compile the runtime entry on first boot, which
+// on a cold cache can take well over 15s on Windows.
+function waitForPort(port, timeout = 60000) {
 	const start = Date.now();
 	return new Promise((resolve, reject) => {
 		function attempt() {
@@ -96,8 +98,13 @@ const env = {
 	KANBAN_WEB_UI_PORT: String(webUiPort),
 };
 
-const tsxBin = isWindows ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx";
-const runtime = spawn(tsxBin, ["watch", "src/cli.ts", ...runtimeCliArgs], {
+// Spawn tsx's JS entry with the current node binary instead of the .bin shim.
+// On Windows the shim is a .cmd batch file, which Node refuses to spawn directly
+// (EINVAL) and which otherwise needs shell: true -- that wraps the runtime in a
+// cmd.exe process, so treeKill would only reap the wrapper and leave an orphaned
+// runtime holding the port.
+const tsxCli = join("node_modules", "tsx", "dist", "cli.mjs");
+const runtime = spawn(process.execPath, [tsxCli, "watch", "src/cli.ts", ...runtimeCliArgs], {
 	env,
 	stdio: "inherit",
 });
