@@ -19,6 +19,10 @@ export interface CorsGateInput {
 }
 
 const isDev = process.env.NODE_ENV === "development";
+// The Vite dev-server port, configurable via KANBAN_WEB_UI_PORT (default 4173).
+// Sourcing it from the env — instead of hardcoding 4173 — lets a second dev
+// instance on another port (e.g. 4174) pass the dev-only Host/Origin gates.
+const devWebUiPort = process.env.KANBAN_WEB_UI_PORT?.trim() || "4173";
 
 export function evaluateCors(input: CorsGateInput): CorsDecision {
 	const origin = input.originHeader || null;
@@ -28,7 +32,8 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 		return { kind: "allow", origin: null };
 	}
 
-	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
+	const isDevServer =
+		isDev && (origin === `http://localhost:${devWebUiPort}` || origin === `http://127.0.0.1:${devWebUiPort}`);
 
 	if (!input.allowedOrigins.has(origin) && !isDevServer) {
 		return { kind: "reject", origin };
@@ -84,9 +89,9 @@ export function getAllowedHostHeaders(): ReadonlySet<string> {
 	}
 
 	if (isDev) {
-		// Vite's default dev server host:port
-		allowed.add("localhost:4173");
-		allowed.add("127.0.0.1:4173");
+		// Vite dev server host:port (KANBAN_WEB_UI_PORT, default 4173)
+		allowed.add(`localhost:${devWebUiPort}`);
+		allowed.add(`127.0.0.1:${devWebUiPort}`);
 	}
 	return allowed;
 }
