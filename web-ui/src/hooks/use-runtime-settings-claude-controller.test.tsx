@@ -38,6 +38,9 @@ function makeConfig(claude: RuntimeClineProviderSettings): RuntimeConfigResponse
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: null,
 		globalConfigPath: "/tmp/global.json",
+		storageDir: "/tmp/kanban-storage",
+		storageDirDefault: "/tmp/kanban-storage",
+		storageDirPending: "/tmp/kanban-storage",
 		projectConfigPath: "/tmp/project.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: [],
@@ -94,24 +97,37 @@ describe("useRuntimeSettingsClaudeController", () => {
 		container.remove();
 	});
 
-	it("loads Anthropic models and seeds the configured model", async () => {
+	it("loads Claude Code models and seeds the configured model", async () => {
 		await act(async () => {
-			root.render(<Harness config={makeConfig(makeProviderSettings({ modelId: "claude-sonnet-4-6" }))} />);
+			root.render(
+				<Harness
+					config={makeConfig(makeProviderSettings({ providerId: "claude-code", modelId: "claude-sonnet-4-6" }))}
+				/>,
+			);
 			await flush();
 		});
-		expect(fetchClineProviderModelsMock).toHaveBeenCalledWith("workspace-1", "anthropic");
+		expect(fetchClineProviderModelsMock).toHaveBeenCalledWith("workspace-1", "claude-code");
 		expect(latest?.models).toEqual([{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }]);
 		expect(latest?.modelId).toBe("claude-sonnet-4-6");
+		expect(latest?.subscriptionConfigured).toBe(true);
 		expect(latest?.hasUnsavedChanges).toBe(false);
 	});
 
-	it("saves the anthropic slot with setLastUsed:false and an entered key", async () => {
+	it("reports unsaved changes until the subscription slot is selected", async () => {
+		await act(async () => {
+			root.render(<Harness config={makeConfig(makeProviderSettings())} />);
+			await flush();
+		});
+		expect(latest?.subscriptionConfigured).toBe(false);
+		expect(latest?.hasUnsavedChanges).toBe(true);
+	});
+
+	it("saves the claude-code slot with setLastUsed:false and no API key", async () => {
 		await act(async () => {
 			root.render(<Harness config={makeConfig(makeProviderSettings())} />);
 			await flush();
 		});
 		await act(async () => {
-			latest?.setApiKey("sk-ant-123");
 			latest?.setModelId("claude-sonnet-4-6");
 			await flush();
 		});
@@ -120,27 +136,7 @@ describe("useRuntimeSettingsClaudeController", () => {
 			await latest?.saveClaudeSettings();
 		});
 		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "anthropic",
-			modelId: "claude-sonnet-4-6",
-			apiKey: "sk-ant-123",
-			setLastUsed: false,
-		});
-	});
-
-	it("omits the API key when left blank so an existing key is preserved", async () => {
-		await act(async () => {
-			root.render(<Harness config={makeConfig(makeProviderSettings({ apiKeyConfigured: true }))} />);
-			await flush();
-		});
-		await act(async () => {
-			latest?.setModelId("claude-sonnet-4-6");
-			await flush();
-		});
-		await act(async () => {
-			await latest?.saveClaudeSettings();
-		});
-		expect(saveClineProviderSettingsMock).toHaveBeenCalledWith("workspace-1", {
-			providerId: "anthropic",
+			providerId: "claude-code",
 			modelId: "claude-sonnet-4-6",
 			setLastUsed: false,
 		});

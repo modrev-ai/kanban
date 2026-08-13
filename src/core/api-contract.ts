@@ -982,6 +982,12 @@ export const runtimeConfigResponseSchema = z.object({
 	effectiveCommand: z.string().nullable(),
 	globalConfigPath: z.string(),
 	projectConfigPath: z.string().nullable(),
+	// The base directory Kanban saves its data under (config.json + project
+	// progress state). Configurable; `storageDirPending` is what will take effect
+	// after the next restart (differs from `storageDir` when a change is unsaved).
+	storageDir: z.string(),
+	storageDirDefault: z.string(),
+	storageDirPending: z.string(),
 	readyForReviewNotificationsEnabled: z.boolean(),
 	detectedCommands: z.array(z.string()),
 	agents: z.array(runtimeAgentDefinitionSchema),
@@ -1016,6 +1022,13 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	llmRetry: runtimeLlmRetrySettingsSchema.partial().optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
+
+// Sets the base storage directory. `null` (or empty) clears the override and
+// reverts to the default. Applied on the next restart.
+export const runtimeStorageDirSaveRequestSchema = z.object({
+	storageDir: z.string().nullable(),
+});
+export type RuntimeStorageDirSaveRequest = z.infer<typeof runtimeStorageDirSaveRequestSchema>;
 
 export const runtimeTaskSessionStartRequestSchema = z.object({
 	taskId: z.string(),

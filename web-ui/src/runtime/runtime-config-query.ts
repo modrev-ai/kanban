@@ -56,6 +56,14 @@ export async function saveRuntimeConfig(
 	return await trpcClient.runtime.saveConfig.mutate(nextConfig);
 }
 
+export async function setRuntimeStorageDir(
+	workspaceId: string | null,
+	storageDir: string | null,
+): Promise<RuntimeConfigResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.setStorageDir.mutate({ storageDir });
+}
+
 export async function saveClineProviderSettings(
 	workspaceId: string | null,
 	input: {

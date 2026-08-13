@@ -2,9 +2,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import {
 	getKanbanRuntimeHost,
-	getKanbanRuntimeOrigin,
 	getKanbanRuntimePort,
 	isKanbanRemoteHost,
+	isKanbanRuntimeHttps,
 } from "../core/runtime-endpoint";
 
 export type CorsDecision =
@@ -15,7 +15,7 @@ export type CorsDecision =
 export interface CorsGateInput {
 	method: string | undefined;
 	originHeader: string | undefined;
-	allowedOrigin: string;
+	allowedOrigins: ReadonlySet<string>;
 }
 
 const isDev = process.env.NODE_ENV === "development";
@@ -30,7 +30,7 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 
 	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
 
-	if (origin !== input.allowedOrigin && !isDevServer) {
+	if (!input.allowedOrigins.has(origin) && !isDevServer) {
 		return { kind: "reject", origin };
 	}
 
@@ -68,17 +68,46 @@ export function getAllowedHostHeaders(): ReadonlySet<string> {
 		allowed.add(`${host}:${port}`);
 	};
 
-	if (isKanbanRemoteHost()) {
-		addHostPort(boundHost);
-		return allowed;
-	}
-
+	// Loopback host headers are always allowed. They cannot be forged by a
+	// DNS-rebinding attacker (the browser sends the URL's own hostname as Host,
+	// and no external domain resolves to the literal "localhost"/"127.0.0.1"), and
+	// allowing them lets a server that binds 0.0.0.0 but is published only on the
+	// host's loopback — e.g. the Docker image on Docker Desktop — still be reached
+	// at http://localhost:PORT from any browser.
 	addHostPort("localhost");
 	addHostPort("127.0.0.1");
+
+	// When bound to a non-loopback address (0.0.0.0 in a container, or a LAN IP),
+	// also accept that address so direct hits to the bound host work.
+	if (isKanbanRemoteHost()) {
+		addHostPort(boundHost);
+	}
+
 	if (isDev) {
 		// Vite's default dev server host:port
 		allowed.add("localhost:4173");
 		allowed.add("127.0.0.1:4173");
+	}
+	return allowed;
+}
+
+// The Origin allowlist mirrors the Host allowlist: loopback origins are always
+// accepted so the app's own fetch/WebSocket calls work when the board is opened
+// at http://localhost:PORT (the browser stamps that as the Origin header), and
+// the bound-host origin is accepted too when bound to a non-loopback address.
+export function getAllowedOrigins(): ReadonlySet<string> {
+	const port = getKanbanRuntimePort();
+	const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+	const boundHost = getKanbanRuntimeHost().toLowerCase();
+	const allowed = new Set<string>();
+	const addOrigin = (host: string) => {
+		allowed.add(`${scheme}://${host}:${port}`);
+	};
+
+	addOrigin("localhost");
+	addOrigin("127.0.0.1");
+	if (isKanbanRemoteHost()) {
+		addOrigin(boundHost);
 	}
 	return allowed;
 }
@@ -120,7 +149,7 @@ export function handleHttpRequest(req: IncomingMessage, res: ServerResponse): { 
 	const corsDecision = evaluateCors({
 		method: req.method,
 		originHeader: req.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOrigins(),
 	});
 
 	switch (corsDecision.kind) {
@@ -157,7 +186,7 @@ export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): {
 	const corsDecision = evaluateCors({
 		method: request.method,
 		originHeader: request.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOrigins(),
 	});
 	if (corsDecision.kind === "reject") {
 		return rejectSocket(socket);

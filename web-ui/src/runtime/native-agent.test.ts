@@ -20,6 +20,9 @@ function createRuntimeConfigResponse(
 		agentAutonomousModeEnabled: true,
 		effectiveCommand: selectedAgentId === "cline" ? null : selectedAgentId,
 		globalConfigPath: "/tmp/global-config.json",
+		storageDir: "/tmp/kanban-storage",
+		storageDirDefault: "/tmp/kanban-storage",
+		storageDirPending: "/tmp/kanban-storage",
 		projectConfigPath: "/tmp/project/.cline/kanban/config.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: ["claude", "codex"],
@@ -268,18 +271,19 @@ describe("native-agent helpers", () => {
 		expect(isTaskAgentSetupSatisfied(config)).toBe(false);
 	});
 
-	it("gates the native Claude agent on its own anthropic provider slot", () => {
+	it("gates the native Claude agent on its own claude-code subscription slot", () => {
 		// An authenticated Cline provider must NOT satisfy Claude; only Claude's
-		// own anthropic slot does.
+		// own claude-code slot does. The subscription provider stores no API key,
+		// so selecting the slot alone is enough.
 		const unconfigured = createRuntimeConfigResponse("claude");
 		expect(isTaskAgentSetupSatisfied(unconfigured)).toBe(false);
 
 		const configured = createRuntimeConfigResponse("claude", {
 			claudeProviderSettings: {
-				providerId: "anthropic",
+				providerId: "claude-code",
 				modelId: "claude-sonnet-4-6",
 				baseUrl: null,
-				apiKeyConfigured: true,
+				apiKeyConfigured: false,
 				oauthProvider: null,
 				oauthAccessTokenConfigured: false,
 				oauthRefreshTokenConfigured: false,

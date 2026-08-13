@@ -45,6 +45,14 @@ kanban
 ```
 Run this from the root of any git repo. Kanban will detect your installed CLI agent and launch a local running webserver in your browser. No account or setup required, it works right out of the box.
 
+#### Run with Docker
+```bash
+# From the repo you want Kanban to manage
+docker compose -f /path/to/kanban/docker-compose.yml up --build
+# then open http://0.0.0.0:3484
+```
+See [docs/docker.md](./docs/docker.md) for configuration, volumes, passcode, and how to add an agent CLI to the container.
+
 ### 2. Create tasks
 Create a task card manually, or open the sidebar chat and ask your agent to break work down into tasks for you. Kanban injects board-management instructions into that session so you can simply ask it to add tasks, link tasks, or start work on your board.
 

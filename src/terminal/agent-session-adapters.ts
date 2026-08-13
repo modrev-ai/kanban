@@ -603,115 +603,6 @@ function toBracketedPasteSubmission(command: string): string {
 	return `\u001b[200~${command}\u001b[201~\r`;
 }
 
-const claudeAdapter: AgentSessionAdapter = {
-	async prepare(input) {
-		const args = [...input.args];
-		const env: Record<string, string | undefined> = {
-			FORCE_HYPERLINK: "1",
-		};
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
-		if (input.autonomousModeEnabled) {
-			// Auto mode is gated behind this env var on Bedrock/Vertex/Foundry; the Anthropic API ignores it.
-			env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1";
-		}
-		if (
-			input.autonomousModeEnabled &&
-			!input.startInPlanMode &&
-			!hasCliOption(args, "--permission-mode") &&
-			!hasCliOption(args, "--dangerously-skip-permissions")
-		) {
-			args.push("--permission-mode", "auto");
-		}
-		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
-			args.push("--continue");
-		}
-		if (input.startInPlanMode) {
-			const withoutImmediateBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
-			args.length = 0;
-			args.push(...withoutImmediateBypass);
-			args.push("--permission-mode", "plan");
-		}
-
-		const hooks = resolveHookContext(input);
-		if (hooks) {
-			const settingsPath = join(getHookAgentDirectory("claude"), "settings.json");
-			const hooksSettings = {
-				hooks: {
-					Stop: [{ hooks: [{ type: "command", command: buildHookCommand("to_review", { source: "claude" }) }] }],
-					SubagentStop: [
-						{ hooks: [{ type: "command", command: buildHookCommand("activity", { source: "claude" }) }] },
-					],
-					PreToolUse: [
-						{
-							matcher: "*",
-							hooks: [{ type: "command", command: buildHookCommand("activity", { source: "claude" }) }],
-						},
-					],
-					PermissionRequest: [
-						{
-							matcher: "*",
-							hooks: [{ type: "command", command: buildHookCommand("to_review", { source: "claude" }) }],
-						},
-					],
-					PostToolUse: [
-						{
-							matcher: "*",
-							hooks: [{ type: "command", command: buildHookCommand("to_in_progress", { source: "claude" }) }],
-						},
-					],
-					PostToolUseFailure: [
-						{
-							matcher: "*",
-							hooks: [{ type: "command", command: buildHookCommand("to_in_progress", { source: "claude" }) }],
-						},
-					],
-					Notification: [
-						{
-							matcher: "permission_prompt",
-							hooks: [{ type: "command", command: buildHookCommand("to_review", { source: "claude" }) }],
-						},
-						{
-							matcher: "*",
-							hooks: [{ type: "command", command: buildHookCommand("activity", { source: "claude" }) }],
-						},
-					],
-					UserPromptSubmit: [
-						{
-							hooks: [{ type: "command", command: buildHookCommand("to_in_progress", { source: "claude" }) }],
-						},
-					],
-				},
-			};
-			await ensureTextFile(settingsPath, JSON.stringify(hooksSettings, null, 2));
-			args.push("--settings", settingsPath);
-			Object.assign(
-				env,
-				createHookRuntimeEnv({
-					taskId: hooks.taskId,
-					workspaceId: hooks.workspaceId,
-				}),
-			);
-		}
-
-		if (
-			appendedSystemPrompt &&
-			!hasCliOption(args, "--append-system-prompt") &&
-			!hasCliOption(args, "--system-prompt")
-		) {
-			args.push("--append-system-prompt", appendedSystemPrompt);
-		}
-
-		const withPromptLaunch = withPrompt(args, input.prompt, "append");
-		return {
-			...withPromptLaunch,
-			env: {
-				...withPromptLaunch.env,
-				...env,
-			},
-		};
-	},
-};
-
 function codexPromptDetector(data: string, summary: RuntimeTaskSessionSummary): SessionTransitionEvent | null {
 	if (summary.state !== "awaiting_review") {
 		return null;
@@ -1430,16 +1321,16 @@ const clineAdapter: AgentSessionAdapter = {
 };
 
 const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
-	claude: claudeAdapter,
 	codex: codexAdapter,
 	gemini: geminiAdapter,
 	opencode: opencodeAdapter,
 	droid: droidAdapter,
 	kiro: kiroAdapter,
 	cline: clineAdapter,
-	// Modrev is a native agent routed through the Cline SDK runtime, so it is
-	// never launched via this external-CLI adapter path. Reuse the Cline adapter
-	// only to satisfy the exhaustive RuntimeAgentId record.
+	// Claude and Modrev are native agents routed through the Cline SDK runtime, so
+	// they are never launched via this external-CLI adapter path. Reuse the Cline
+	// adapter only to satisfy the exhaustive RuntimeAgentId record.
+	claude: clineAdapter,
 	modrev: clineAdapter,
 };
 

@@ -1,7 +1,6 @@
 // Settings dialog composition for Kanban.
 // Generic app settings live here, while Cline-specific provider state and
 // side effects should stay in use-runtime-settings-cline-controller.ts.
-import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as RadixPopover from "@radix-ui/react-popover";
 import * as RadixSelect from "@radix-ui/react-select";
 import * as RadixSwitch from "@radix-ui/react-switch";
@@ -16,15 +15,13 @@ import {
 	Bot,
 	Check,
 	ChevronDown,
-	Circle,
-	CircleDot,
 	ExternalLink,
 	FolderOpen,
 	GitCommit,
+	HardDrive,
 	Palette,
 	Plus,
 	Settings,
-	SlidersHorizontal,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +36,7 @@ import {
 	type RuntimeShortcutIconOption,
 	type RuntimeShortcutPickerIconId,
 } from "@/components/shared/runtime-shortcut-icons";
+import { StorageSettingsSection } from "@/components/shared/storage-settings-section";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -102,7 +100,7 @@ export type RuntimeSettingsSection = "shortcuts";
 
 const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "modrev", "claude", "codex", "droid", "kiro"];
 
-type SettingsNavId = "general" | "cline" | "modrev" | "git-prompts" | "notifications" | "appearance" | "project";
+type SettingsNavId = "cline" | "modrev" | "git-prompts" | "notifications" | "appearance" | "project" | "storage";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
@@ -110,13 +108,13 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	icon: React.ReactNode;
 	agentOnly?: RuntimeAgentId;
 }> = [
-	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
 	{ id: "cline", label: "Cline", icon: <Bot size={16} />, agentOnly: "cline" },
 	{ id: "modrev", label: "Models", icon: <Bot size={16} /> },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
 	{ id: "project", label: "Project", icon: <FolderOpen size={16} /> },
+	{ id: "storage", label: "Storage", icon: <HardDrive size={16} /> },
 ];
 
 function getShortcutIconOption(icon: string | undefined): RuntimeShortcutIconOption {
@@ -149,85 +147,6 @@ function getNextShortcutLabel(shortcuts: RuntimeProjectShortcut[], baseLabel: st
 		suffix += 1;
 	}
 	return `${baseLabel} ${suffix}`;
-}
-
-function AgentRow({
-	agent,
-	isSelected,
-	onSelect,
-	disabled,
-}: {
-	agent: RuntimeSettingsAgentRowModel;
-	isSelected: boolean;
-	onSelect: () => void;
-	disabled: boolean;
-}): React.ReactElement {
-	const installUrl = getRuntimeAgentCatalogEntry(agent.id)?.installUrl;
-	const isNativeCline = isNativeClineRuntimeAgent(agent.id);
-	const isInstalled = agent.installed === true;
-	const isInstallStatusPending = !isNativeCline && agent.installed === null;
-
-	return (
-		<div
-			role="button"
-			tabIndex={0}
-			onClick={() => {
-				if (isInstalled && !disabled) {
-					onSelect();
-				}
-			}}
-			onKeyDown={(event) => {
-				if (event.key === "Enter" && isInstalled && !disabled) {
-					onSelect();
-				}
-			}}
-			className="flex items-center justify-between gap-3 py-1.5"
-			style={{ cursor: isInstalled ? "pointer" : "default" }}
-		>
-			<div className="flex items-start gap-2 min-w-0">
-				{isSelected ? (
-					<CircleDot size={16} className="text-accent mt-0.5 shrink-0" />
-				) : (
-					<Circle
-						size={16}
-						className={cn("mt-0.5 shrink-0", !isInstalled ? "text-text-tertiary" : "text-text-secondary")}
-					/>
-				)}
-				<div className="min-w-0">
-					<div className="flex items-center gap-2">
-						<span className="text-[13px] text-text-primary">{agent.label}</span>
-						{!isNativeCline && isInstalled ? (
-							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-status-green/10 text-status-green">
-								Installed
-							</span>
-						) : isInstallStatusPending ? (
-							<span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-surface-3 text-text-secondary">
-								Checking...
-							</span>
-						) : null}
-					</div>
-					{agent.command ? (
-						<p className="text-text-secondary font-mono text-xs mt-0.5 m-0">{agent.command}</p>
-					) : null}
-				</div>
-			</div>
-			{!isNativeCline && agent.installed === false && installUrl ? (
-				<a
-					href={installUrl}
-					target="_blank"
-					rel="noreferrer"
-					onClick={(event: React.MouseEvent) => event.stopPropagation()}
-					className="inline-flex items-center justify-center rounded-md font-medium duration-150 cursor-default select-none h-7 px-2 text-xs bg-surface-2 border border-border text-text-primary hover:bg-surface-3 hover:border-border-bright"
-				>
-					Install
-				</a>
-			) : !isNativeCline && agent.installed === false ? (
-				<Button size="sm" disabled>
-					Install
-				</Button>
-			) : null}
-		</div>
-	);
 }
 
 function InlineUtilityButton({
@@ -393,7 +312,7 @@ export function RuntimeSettingsDialog({
 	const shortcutRowRefs = useRef<Array<HTMLDivElement | null>>([]);
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const isScrollingProgrammatically = useRef(false);
-	const [activeSection, setActiveSection] = useState<SettingsNavId>("general");
+	const [activeSection, setActiveSection] = useState<SettingsNavId>("modrev");
 	const controlsDisabled = isLoading || isSaving || config === null;
 	const commitPromptTemplateDefault = config?.commitPromptTemplateDefault ?? "";
 	const openPrPromptTemplateDefault = config?.openPrPromptTemplateDefault ?? "";
@@ -410,7 +329,6 @@ export function RuntimeSettingsDialog({
 		selectedPromptVariant === "commit" ? isCommitPromptAtDefault : isOpenPrPromptAtDefault;
 	const selectedPromptPlaceholder =
 		selectedPromptVariant === "commit" ? "Commit prompt template" : "PR prompt template";
-	const bypassPermissionsCheckboxId = "runtime-settings-bypass-permissions";
 	const refreshNotificationPermission = useCallback(() => {
 		setNotificationPermission(getBrowserNotificationPermission());
 	}, []);
@@ -615,7 +533,7 @@ export function RuntimeSettingsDialog({
 	useEffect(() => {
 		const activeNavItem = SETTINGS_NAV_ITEMS.find((item) => item.id === activeSection);
 		if (activeNavItem?.agentOnly !== undefined && activeNavItem.agentOnly !== selectedAgentId) {
-			setActiveSection("general");
+			setActiveSection("modrev");
 		}
 	}, [activeSection, selectedAgentId]);
 
@@ -625,7 +543,7 @@ export function RuntimeSettingsDialog({
 		if (!body) return;
 		const headings = body.querySelectorAll<HTMLElement>("[data-settings-section]");
 		const bodyRect = body.getBoundingClientRect();
-		let current: SettingsNavId = "general";
+		let current: SettingsNavId = "modrev";
 
 		for (const heading of headings) {
 			const rect = heading.getBoundingClientRect();
@@ -799,53 +717,6 @@ export function RuntimeSettingsDialog({
 					onScroll={handleBodyScroll}
 					className="px-5 pb-5 overflow-y-auto overscroll-contain flex-1 min-h-0 bg-surface-1"
 				>
-					{/* ---- General ---- */}
-					<div data-settings-section="general" />
-					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
-						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
-							<SlidersHorizontal size={16} className="text-text-secondary" />
-							General
-						</h2>
-					</div>
-					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
-						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-1">
-							Agent
-						</h6>
-						{displayedAgents.map((agent) => (
-							<AgentRow
-								key={agent.id}
-								agent={agent}
-								isSelected={agent.id === selectedAgentId}
-								onSelect={() => setSelectedAgentId(agent.id)}
-								disabled={controlsDisabled}
-							/>
-						))}
-						{config === null ? (
-							<p className="text-text-secondary py-2">Checking which CLIs are installed for this project...</p>
-						) : null}
-						<label
-							htmlFor={bypassPermissionsCheckboxId}
-							className="flex items-center gap-2 text-[13px] text-text-primary mt-2 cursor-pointer"
-						>
-							<RadixCheckbox.Root
-								id={bypassPermissionsCheckboxId}
-								aria-label="Enable bypass permissions flag"
-								checked={agentAutonomousModeEnabled}
-								disabled={controlsDisabled}
-								onCheckedChange={(checked) => setAgentAutonomousModeEnabled(checked === true)}
-								className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
-							>
-								<RadixCheckbox.Indicator>
-									<Check size={12} className="text-white" />
-								</RadixCheckbox.Indicator>
-							</RadixCheckbox.Root>
-							<span>Enable bypass permissions flag</span>
-						</label>
-						<p className="text-text-secondary text-[13px] ml-6 mt-0 mb-0">
-							Allows agents to use tools without stopping for permission. Use at your own risk.
-						</p>
-					</div>
-
 					{/* ---- Cline ---- */}
 					{selectedAgentId === "cline" ? (
 						<>
@@ -1217,6 +1088,23 @@ export function RuntimeSettingsDialog({
 						{shortcuts.length === 0 ? (
 							<p className="text-text-secondary text-[13px]">No shortcuts configured.</p>
 						) : null}
+					</div>
+
+					{/* ---- Storage ---- */}
+					<div data-settings-section="storage" />
+					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+							<HardDrive size={16} className="text-text-secondary" />
+							Storage
+						</h2>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<StorageSettingsSection
+							config={config}
+							workspaceId={workspaceId}
+							onSaved={refresh}
+							disabled={controlsDisabled}
+						/>
 					</div>
 
 					{saveError ? (
