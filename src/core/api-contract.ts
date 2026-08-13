@@ -988,6 +988,9 @@ export const runtimeConfigResponseSchema = z.object({
 	storageDir: z.string(),
 	storageDirDefault: z.string(),
 	storageDirPending: z.string(),
+	// The git branch of the Kanban app's own source checkout ("dev", "main", …),
+	// or null when not running from a git checkout. Used to badge the UI.
+	appBranch: z.string().nullable(),
 	readyForReviewNotificationsEnabled: z.boolean(),
 	detectedCommands: z.array(z.string()),
 	agents: z.array(runtimeAgentDefinitionSchema),

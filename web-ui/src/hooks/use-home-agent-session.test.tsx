@@ -69,6 +69,7 @@ function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): Ru
 		storageDir: "/tmp/kanban-storage",
 		storageDirDefault: "/tmp/kanban-storage",
 		storageDirPending: "/tmp/kanban-storage",
+		appBranch: null,
 		projectConfigPath: "/tmp/project-config.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: ["codex", "claude", "cline"],
