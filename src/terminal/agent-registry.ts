@@ -11,6 +11,7 @@ import type {
 	RuntimeClineProviderSettings,
 	RuntimeConfigResponse,
 } from "../core/api-contract";
+import { getKanbanAppBranch } from "../core/app-branch";
 import { isBinaryAvailableOnPath } from "./command-discovery";
 
 export interface ResolvedAgentCommand {
@@ -127,6 +128,7 @@ export function buildRuntimeConfigResponse(
 		storageDir: getKanbanStorageDir(),
 		storageDirDefault: getKanbanStorageDirDefault(),
 		storageDirPending: getPendingKanbanStorageDir(),
+		appBranch: getKanbanAppBranch(),
 		readyForReviewNotificationsEnabled: runtimeConfig.readyForReviewNotificationsEnabled,
 		detectedCommands,
 		agents,
