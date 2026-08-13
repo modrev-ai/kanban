@@ -18,6 +18,7 @@ import {
 	ExternalLink,
 	FolderOpen,
 	GitCommit,
+	HardDrive,
 	Palette,
 	Plus,
 	Settings,
@@ -35,6 +36,7 @@ import {
 	type RuntimeShortcutIconOption,
 	type RuntimeShortcutPickerIconId,
 } from "@/components/shared/runtime-shortcut-icons";
+import { StorageSettingsSection } from "@/components/shared/storage-settings-section";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
@@ -98,7 +100,7 @@ export type RuntimeSettingsSection = "shortcuts";
 
 const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "modrev", "claude", "codex", "droid", "kiro"];
 
-type SettingsNavId = "cline" | "modrev" | "git-prompts" | "notifications" | "appearance" | "project";
+type SettingsNavId = "cline" | "modrev" | "git-prompts" | "notifications" | "appearance" | "project" | "storage";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
@@ -112,6 +114,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
 	{ id: "project", label: "Project", icon: <FolderOpen size={16} /> },
+	{ id: "storage", label: "Storage", icon: <HardDrive size={16} /> },
 ];
 
 function getShortcutIconOption(icon: string | undefined): RuntimeShortcutIconOption {
@@ -714,7 +717,6 @@ export function RuntimeSettingsDialog({
 					onScroll={handleBodyScroll}
 					className="px-5 pb-5 overflow-y-auto overscroll-contain flex-1 min-h-0 bg-surface-1"
 				>
-
 					{/* ---- Cline ---- */}
 					{selectedAgentId === "cline" ? (
 						<>
@@ -1086,6 +1088,23 @@ export function RuntimeSettingsDialog({
 						{shortcuts.length === 0 ? (
 							<p className="text-text-secondary text-[13px]">No shortcuts configured.</p>
 						) : null}
+					</div>
+
+					{/* ---- Storage ---- */}
+					<div data-settings-section="storage" />
+					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+							<HardDrive size={16} className="text-text-secondary" />
+							Storage
+						</h2>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<StorageSettingsSection
+							config={config}
+							workspaceId={workspaceId}
+							onSaved={refresh}
+							disabled={controlsDisabled}
+						/>
 					</div>
 
 					{saveError ? (

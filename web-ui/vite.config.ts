@@ -5,6 +5,9 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin, type ResolvedConfig, transformWithEsbuild } from "vite";
 
 const rootPkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf-8")) as { version: string };
+// Marketing version shown in the UI: derived from package.json but without the
+// distribution suffix, e.g. "1.0.2-modrev" -> "1.0.2".
+const appVersion = rootPkg.version.split("-")[0];
 const XTERM_CHUNK_NAME = "xterm-vendor";
 
 function isXtermModule(id: string): boolean {
@@ -58,7 +61,7 @@ export default defineConfig({
 	plugins: [tailwindcss(), react(), selectiveBuildMinifyPlugin()],
 	envPrefix: ["VITE_", "POSTHOG_"],
 	define: {
-		__APP_VERSION__: JSON.stringify(rootPkg.version),
+		__APP_VERSION__: JSON.stringify(appVersion),
 	},
 	build: {
 		// esbuild minification corrupts xterm's DECRQM requestMode helper in the

@@ -67,6 +67,7 @@ import type {
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSlashCommandsResponse,
+	RuntimeStorageDirSaveRequest,
 	RuntimeTaskChatAbortRequest,
 	RuntimeTaskChatAbortResponse,
 	RuntimeTaskChatCancelRequest,
@@ -160,6 +161,7 @@ import {
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
 	runtimeSlashCommandsResponseSchema,
+	runtimeStorageDirSaveRequestSchema,
 	runtimeTaskChatAbortRequestSchema,
 	runtimeTaskChatAbortResponseSchema,
 	runtimeTaskChatCancelRequestSchema,
@@ -206,6 +208,7 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeConfigSaveRequest,
 		) => Promise<RuntimeConfigResponse>;
+		setStorageDir: (input: RuntimeStorageDirSaveRequest) => Promise<RuntimeConfigResponse>;
 		saveClineProviderSettings: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineProviderSettingsSaveRequest,
@@ -444,6 +447,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeConfigResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.saveConfig(ctx.workspaceScope, input);
+			}),
+		setStorageDir: t.procedure
+			.input(runtimeStorageDirSaveRequestSchema)
+			.output(runtimeConfigResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.setStorageDir(input);
 			}),
 		saveClineProviderSettings: t.procedure
 			.input(runtimeClineProviderSettingsSaveRequestSchema)

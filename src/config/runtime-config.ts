@@ -8,6 +8,7 @@ import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../c
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
+import { getKanbanStorageDir } from "./storage-dir";
 
 interface RuntimeGlobalConfigFileShape {
 	selectedAgentId?: RuntimeAgentId;
@@ -63,8 +64,6 @@ export interface RuntimeConfigUpdateInput {
 	modrevModelId?: string | null;
 }
 
-const RUNTIME_HOME_PARENT_DIR = ".cline";
-const RUNTIME_HOME_DIR = "kanban";
 const CONFIG_FILENAME = "config.json";
 const PROJECT_CONFIG_PARENT_DIR = ".cline";
 const PROJECT_CONFIG_DIR = "kanban";
@@ -132,7 +131,7 @@ export function pickBestInstalledAgentIdFromDetected(detectedCommands: readonly 
 }
 
 function getRuntimeHomePath(): string {
-	return join(homedir(), RUNTIME_HOME_PARENT_DIR, RUNTIME_HOME_DIR);
+	return getKanbanStorageDir();
 }
 
 function normalizeAgentId(agentId: RuntimeAgentId | string | null | undefined): RuntimeAgentId {
