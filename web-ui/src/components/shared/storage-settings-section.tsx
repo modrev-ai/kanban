@@ -89,7 +89,7 @@ export function StorageSettingsSection({
 
 			<div className="flex items-center gap-2">
 				<Button size="sm" variant="primary" disabled={busy} onClick={() => persist(value.trim() || null)}>
-					Save
+					Save directory
 				</Button>
 				<Button size="sm" variant="default" disabled={busy} onClick={() => persist(null)}>
 					Reset to default

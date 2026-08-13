@@ -49,15 +49,15 @@ function readPointerOverride(): string | null {
 	}
 }
 
-let cachedStorageDir: string | null = null;
-
-/** The active storage directory for this process (resolved once, then cached). */
+/**
+ * The active storage directory: env override, pointer file, or the default.
+ * Resolved fresh on each call (the inputs are cheap to read and effectively
+ * constant per process) so that changing HOME/env at runtime — e.g. in tests —
+ * is always reflected rather than frozen to a first-call value.
+ */
 export function getKanbanStorageDir(): string {
-	if (cachedStorageDir === null) {
-		const override = readEnvOverride() ?? readPointerOverride();
-		cachedStorageDir = toAbsolute(override ?? getDefaultStorageDir());
-	}
-	return cachedStorageDir;
+	const override = readEnvOverride() ?? readPointerOverride();
+	return toAbsolute(override ?? getDefaultStorageDir());
 }
 
 /** The built-in default, regardless of any override. Shown in the settings UI. */
@@ -71,13 +71,12 @@ export function isKanbanStorageDirConfigured(): boolean {
 }
 
 /**
- * The storage dir that will be used after the next restart, based on the pointer
- * file and env var. May differ from getKanbanStorageDir() when a change was just
- * saved but not yet applied.
+ * The storage dir that will be used going forward, based on the pointer file and
+ * env var. Resolution is not cached, so this equals getKanbanStorageDir(); it is
+ * kept as a distinct export for the API/UI that surfaces a "pending" value.
  */
 export function getPendingKanbanStorageDir(): string {
-	const override = readEnvOverride() ?? readPointerOverride();
-	return toAbsolute(override ?? getDefaultStorageDir());
+	return getKanbanStorageDir();
 }
 
 /**

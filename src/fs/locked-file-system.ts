@@ -5,12 +5,21 @@ import type { LockOptions } from "proper-lockfile";
 import * as lockfile from "proper-lockfile";
 
 const DEFAULT_LOCK_STALE_MS = 10_000;
+// The retry window MUST comfortably exceed DEFAULT_LOCK_STALE_MS. proper-lockfile
+// only reclaims an abandoned lock once it has aged past `stale`, so an acquirer has
+// to keep retrying past that point to steal it. The previous 200×25-50ms window was
+// only 5-10s — shorter than the 10s stale threshold — so a lock left behind by a
+// killed or event-loop-stalled writer could exhaust its retries *before* becoming
+// reclaimable, throwing ELOCKED ("Lock file is already being held") and surfacing as
+// an intermittent disconnect. 250×50-80ms guarantees at least ~12.5s of retries
+// (> stale), so a stale lock is always stolen rather than erroring out; `randomize`
+// jitters the backoff so concurrent waiters don't stampede the steal.
 const DEFAULT_LOCK_RETRIES: NonNullable<LockOptions["retries"]> = {
-	retries: 200,
+	retries: 250,
 	factor: 1,
-	minTimeout: 25,
-	maxTimeout: 50,
-	randomize: false,
+	minTimeout: 50,
+	maxTimeout: 80,
+	randomize: true,
 };
 
 interface BaseLockRequest {
@@ -44,17 +53,28 @@ export interface AtomicTextWriteOptions {
 	executable?: boolean;
 }
 
+// proper-lockfile refreshes each held lock's mtime on an internal timer and, if it
+// finds the lock was stolen or removed in the meantime, invokes `onCompromised`. Its
+// built-in default RETHROWS, and because that throw originates from the timer callback
+// (not from any awaited promise) it surfaces as an uncaughtException that kills the
+// whole process. On a resource-starved host a long event-loop stall lets the lock go
+// stale and another writer steal it — compromising ours through no fault of the
+// in-flight operation — so the default behavior turns a routine contention event into a
+// full server crash. Losing one lock must not take everyone down: log and keep running.
+// The atomic temp-file + rename writes bound the worst case to a lost update of a JSON
+// file that is trivially rebuilt, never a corrupt/partial file.
+function defaultOnCompromised(error: Error): void {
+	process.stderr.write(`[locked-file-system] lock compromised, continuing without it: ${error?.message ?? error}\n`);
+}
+
 function createLockOptions(request: LockRequest, lockfilePath: string): LockOptions {
-	const options: LockOptions = {
+	return {
 		stale: request.staleMs ?? DEFAULT_LOCK_STALE_MS,
 		retries: request.retries ?? DEFAULT_LOCK_RETRIES,
 		realpath: false,
 		lockfilePath,
+		onCompromised: request.onCompromised ?? defaultOnCompromised,
 	};
-	if (typeof request.onCompromised === "function") {
-		options.onCompromised = request.onCompromised;
-	}
-	return options;
 }
 
 async function readFileIfExists(path: string): Promise<string | null> {
@@ -108,7 +128,16 @@ export class LockedFileSystem {
 			return await operation();
 		} finally {
 			for (const release of releases.reverse()) {
-				await release();
+				// Release best-effort: if a lock was compromised mid-operation (see
+				// defaultOnCompromised), proper-lockfile's release rejects because the
+				// lockfile is already gone. That must not mask the operation's result or
+				// escape as an unhandled rejection, so swallow and log it.
+				try {
+					await release();
+				} catch (releaseError) {
+					const message = releaseError instanceof Error ? releaseError.message : String(releaseError);
+					process.stderr.write(`[locked-file-system] failed to release lock (ignoring): ${message}\n`);
+				}
 			}
 		}
 	}
