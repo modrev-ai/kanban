@@ -1,4 +1,5 @@
 import type { RuntimeConfigState } from "../config/runtime-config";
+import { getKanbanStorageDir, getKanbanStorageDirDefault, getPendingKanbanStorageDir } from "../config/storage-dir";
 import {
 	getRuntimeLaunchSupportedAgentCatalog,
 	isNativeClineRuntimeAgent,
@@ -123,6 +124,9 @@ export function buildRuntimeConfigResponse(
 		effectiveCommand,
 		globalConfigPath: runtimeConfig.globalConfigPath,
 		projectConfigPath: runtimeConfig.projectConfigPath,
+		storageDir: getKanbanStorageDir(),
+		storageDirDefault: getKanbanStorageDirDefault(),
+		storageDirPending: getPendingKanbanStorageDir(),
 		readyForReviewNotificationsEnabled: runtimeConfig.readyForReviewNotificationsEnabled,
 		detectedCommands,
 		agents,

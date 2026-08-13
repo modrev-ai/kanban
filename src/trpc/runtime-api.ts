@@ -14,6 +14,7 @@ import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateRuntimeConfig } from "../config/runtime-config";
+import { getKanbanStorageDir, setKanbanStorageDir } from "../config/storage-dir";
 import { isNativeClineRuntimeAgent } from "../core/agent-catalog";
 import type {
 	RuntimeAgentId,
@@ -138,7 +139,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 	});
 	const debugResetTargetPaths = [
 		join(homedir(), ".cline", "data"),
-		join(homedir(), ".cline", "kanban"),
+		getKanbanStorageDir(),
 		join(homedir(), ".cline", "worktrees"),
 	] as const;
 
@@ -196,6 +197,19 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				deps.setActiveRuntimeConfig(nextRuntimeConfig);
 			}
 			return buildConfigResponse(nextRuntimeConfig);
+		},
+		setStorageDir: async (input) => {
+			// Persists to the pointer file; takes effect on the next restart. The
+			// response's storageDirPending reflects the newly-saved value.
+			setKanbanStorageDir(input.storageDir);
+			const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
+			if (!activeRuntimeConfig) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "No active runtime config is available.",
+				});
+			}
+			return buildConfigResponse(activeRuntimeConfig);
 		},
 		saveClineProviderSettings: async (_workspaceScope, input) => {
 			const body = parseClineProviderSettingsSaveRequest(input);
