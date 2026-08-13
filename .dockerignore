@@ -18,6 +18,11 @@ packages/desktop/cli
 test-results
 playwright-report
 
+# Nested repos / clones that sometimes sit in the working dir. They are not part
+# of the image and can contain symlinks the build context can't resolve.
+kanban
+keywee
+
 # Local env files (never bake secrets into the image)
 .env
 .env.*
