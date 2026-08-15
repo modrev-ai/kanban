@@ -56,6 +56,7 @@ export function ProjectNavigationPanel({
 	agentSectionContent,
 	selectedAgentId,
 	clineProviderSettings,
+	appBranch,
 	featurebaseFeedbackState,
 	onSelectProject,
 	onRemoveProject,
@@ -75,6 +76,7 @@ export function ProjectNavigationPanel({
 	agentSectionContent?: ReactNode;
 	selectedAgentId?: RuntimeAgentId | null;
 	clineProviderSettings?: RuntimeClineProviderSettings | null;
+	appBranch?: string | null;
 	featurebaseFeedbackState?: FeaturebaseFeedbackState;
 	onSelectProject: (projectId: string) => void;
 	onRemoveProject: (projectId: string) => Promise<boolean>;
@@ -301,6 +303,19 @@ export function ProjectNavigationPanel({
 					<div className="font-semibold text-base flex items-baseline gap-1.5">
 						<TreePine size={18} className="text-white shrink-0 self-center" />
 						ModRev <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+						{appBranch ? (
+							<span
+								className={cn(
+									"ml-0.5 self-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+									appBranch === "main"
+										? "bg-status-orange/15 text-status-orange"
+										: "bg-status-blue/15 text-status-blue",
+								)}
+								title={`Running from the "${appBranch}" branch`}
+							>
+								{appBranch === "main" ? "prod" : appBranch}
+							</span>
+						) : null}
 					</div>
 					{isMobile ? (
 						<Button

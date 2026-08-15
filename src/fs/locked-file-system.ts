@@ -5,12 +5,21 @@ import type { LockOptions } from "proper-lockfile";
 import * as lockfile from "proper-lockfile";
 
 const DEFAULT_LOCK_STALE_MS = 10_000;
+// The retry window MUST comfortably exceed DEFAULT_LOCK_STALE_MS. proper-lockfile
+// only reclaims an abandoned lock once it has aged past `stale`, so an acquirer has
+// to keep retrying past that point to steal it. The previous 200×25-50ms window was
+// only 5-10s — shorter than the 10s stale threshold — so a lock left behind by a
+// killed or event-loop-stalled writer could exhaust its retries *before* becoming
+// reclaimable, throwing ELOCKED ("Lock file is already being held") and surfacing as
+// an intermittent disconnect. 250×50-80ms guarantees at least ~12.5s of retries
+// (> stale), so a stale lock is always stolen rather than erroring out; `randomize`
+// jitters the backoff so concurrent waiters don't stampede the steal.
 const DEFAULT_LOCK_RETRIES: NonNullable<LockOptions["retries"]> = {
-	retries: 200,
+	retries: 250,
 	factor: 1,
-	minTimeout: 25,
-	maxTimeout: 50,
-	randomize: false,
+	minTimeout: 50,
+	maxTimeout: 80,
+	randomize: true,
 };
 
 interface BaseLockRequest {

@@ -41,6 +41,7 @@ function makeConfig(claude: RuntimeClineProviderSettings): RuntimeConfigResponse
 		storageDir: "/tmp/kanban-storage",
 		storageDirDefault: "/tmp/kanban-storage",
 		storageDirPending: "/tmp/kanban-storage",
+		appBranch: null,
 		projectConfigPath: "/tmp/project.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: [],

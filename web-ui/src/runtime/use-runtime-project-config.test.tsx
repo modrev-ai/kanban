@@ -34,6 +34,7 @@ function createRuntimeConfigResponse(
 		storageDir: "/tmp/kanban-storage",
 		storageDirDefault: "/tmp/kanban-storage",
 		storageDirPending: "/tmp/kanban-storage",
+		appBranch: null,
 		projectConfigPath: "/tmp/project/.cline/kanban/config.json",
 		readyForReviewNotificationsEnabled: true,
 		detectedCommands: [selectedAgentId],

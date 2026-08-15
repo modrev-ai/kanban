@@ -43,7 +43,11 @@ function findPort(start, reserved = new Set()) {
 	}
 	return new Promise((resolve) => {
 		const srv = createServer();
-		srv.listen(start, "127.0.0.1", () => {
+		// Probe on 0.0.0.0 (all interfaces): Vite binds 0.0.0.0, so a loopback-only
+		// probe would miss a port already held by another instance's dev server and
+		// wrongly report it free. Binding 0.0.0.0 conflicts with any existing
+		// listener on the port, loopback or not, so this detects them all.
+		srv.listen(start, "0.0.0.0", () => {
 			srv.close(() => resolve(start));
 		});
 		srv.on("error", () => resolve(findPort(start + 1, reserved)));
@@ -73,8 +77,13 @@ function waitForPort(port, timeout = 60000) {
 	});
 }
 
-const runtimePort = await findPort(3484);
-const webUiPort = await findPort(4173, new Set([runtimePort]));
+// Honor explicit ports from the environment (e.g. the `dev:full` / `prod:full`
+// scripts pin these) so instances land on deterministic ports; otherwise
+// auto-select the first free ones.
+const runtimePort = process.env.KANBAN_RUNTIME_PORT ? Number(process.env.KANBAN_RUNTIME_PORT) : await findPort(3484);
+const webUiPort = process.env.KANBAN_WEB_UI_PORT
+	? Number(process.env.KANBAN_WEB_UI_PORT)
+	: await findPort(4173, new Set([runtimePort]));
 const requestedDevFullArgs = process.argv.slice(2);
 const withShutdownCleanupFlag = "--with-shutdown-cleanup";
 const requestedRuntimeArgs = requestedDevFullArgs.filter((arg) => arg !== withShutdownCleanupFlag);
