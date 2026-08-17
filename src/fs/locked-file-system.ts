@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 import type { LockOptions } from "proper-lockfile";
 import * as lockfile from "proper-lockfile";
+import { lockfileFs } from "./lockfile-fs";
 
 const DEFAULT_LOCK_STALE_MS = 10_000;
 // The retry window MUST comfortably exceed DEFAULT_LOCK_STALE_MS. proper-lockfile
@@ -74,6 +75,9 @@ function createLockOptions(request: LockRequest, lockfilePath: string): LockOpti
 		realpath: false,
 		lockfilePath,
 		onCompromised: request.onCompromised ?? defaultOnCompromised,
+		// Retries the lock-directory removal that Windows/Google-Drive-backed paths
+		// intermittently fail with EBUSY; see lockfile-fs.ts.
+		fs: lockfileFs,
 	};
 }
 

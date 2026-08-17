@@ -14,6 +14,7 @@ vi.mock("proper-lockfile", () => ({
 }));
 
 import { LockedFileSystem } from "../../src/fs/locked-file-system";
+import { lockfileFs } from "../../src/fs/lockfile-fs";
 
 describe("LockedFileSystem", () => {
 	beforeEach(() => {
@@ -39,6 +40,23 @@ describe("LockedFileSystem", () => {
 			// And that default must not throw — a compromised lock should never crash.
 			expect(() => (options.onCompromised as (error: Error) => void)(new Error("compromised"))).not.toThrow();
 			expect(lockfileMocks.release).toHaveBeenCalledTimes(1);
+		} finally {
+			tempDir.cleanup();
+		}
+	});
+
+	it("locks through the retrying fs adapter", async () => {
+		const tempDir = createTempDir("kanban-locked-fs-");
+		try {
+			const filePath = join(tempDir.path, "state.json");
+			const lockedFileSystem = new LockedFileSystem();
+
+			await lockedFileSystem.withLock({ path: filePath, type: "file" }, async () => {});
+
+			// proper-lockfile's default fs does not retry the lock directory's rmdir, so
+			// on Windows / Google Drive paths a transient EBUSY abandons the lock.
+			const options = lockfileMocks.lock.mock.calls[0]?.[1] as Record<string, unknown>;
+			expect(options.fs).toBe(lockfileFs);
 		} finally {
 			tempDir.cleanup();
 		}
