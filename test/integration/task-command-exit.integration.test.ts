@@ -8,6 +8,11 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { createGitTestEnv } from "../utilities/git-env";
+import {
+	CLI_COMMAND_TIMEOUT_MS,
+	RUNTIME_INTEGRATION_TEST_TIMEOUT_MS,
+	RUNTIME_START_TIMEOUT_MS,
+} from "../utilities/integration-timeouts";
 import { createTempDir } from "../utilities/temp-dir";
 
 const requireFromHere = createRequire(import.meta.url);
@@ -82,7 +87,7 @@ async function getAvailablePort(): Promise<number> {
 	return port;
 }
 
-async function waitForServerStart(process: ChildProcess, timeoutMs = 10_000): Promise<void> {
+async function waitForServerStart(process: ChildProcess, timeoutMs = RUNTIME_START_TIMEOUT_MS): Promise<void> {
 	await new Promise<void>((resolveStart, rejectStart) => {
 		if (!process.stdout || !process.stderr) {
 			rejectStart(new Error("Expected child process stdout/stderr pipes to be available."));
@@ -234,7 +239,7 @@ async function runCliCommandAndCollectOutput(options: {
 		stderr += chunk.toString();
 	});
 
-	const didExit = await waitForExit(process, options.timeoutMs ?? 8_000);
+	const didExit = await waitForExit(process, options.timeoutMs ?? CLI_COMMAND_TIMEOUT_MS);
 	if (!didExit) {
 		process.kill("SIGKILL");
 	}
@@ -247,8 +252,8 @@ async function runCliCommandAndCollectOutput(options: {
 	};
 }
 
-describe("source task commands", () => {
-	it("exits after creating a task when the runtime server is already running", { timeout: 60_000 }, async () => {
+describe("source task commands", { timeout: RUNTIME_INTEGRATION_TEST_TIMEOUT_MS }, () => {
+	it("exits after creating a task when the runtime server is already running", async () => {
 		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-exit-");
 		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-exit-");
 
@@ -308,7 +313,7 @@ describe("source task commands", () => {
 					stderr += chunk.toString();
 				});
 
-				const didExit = await waitForExit(commandProcess, 8_000);
+				const didExit = await waitForExit(commandProcess, CLI_COMMAND_TIMEOUT_MS);
 				if (!didExit) {
 					commandProcess.kill("SIGKILL");
 				}
@@ -330,7 +335,7 @@ describe("source task commands", () => {
 		}
 	});
 
-	it("opens only for launch invocations", { timeout: 60_000 }, async () => {
+	it("opens only for launch invocations", async () => {
 		if (process.platform === "win32") {
 			return;
 		}
@@ -404,7 +409,7 @@ describe("source task commands", () => {
 		}
 	});
 
-	it("supports done and trash aliases when moving and deleting tasks", { timeout: 60_000 }, async () => {
+	it("supports done and trash aliases when moving and deleting tasks", async () => {
 		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-done-delete-");
 		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-done-delete-");
 
@@ -558,7 +563,7 @@ describe("source task commands", () => {
 		}
 	});
 
-	it("treats create-time reasoning inherit as no explicit override", { timeout: 60_000 }, async () => {
+	it("treats create-time reasoning inherit as no explicit override", async () => {
 		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-cline-reasoning-");
 		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-cline-reasoning-");
 

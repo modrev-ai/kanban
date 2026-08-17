@@ -1,31 +1,43 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { buildShellCommandLine } from "../../../src/core/shell";
 import { prepareAgentLaunch } from "../../../src/terminal/agent-session-adapters";
+import { createTempHome, type TempHome } from "../../utilities/temp-home";
 
-const originalHome = process.env.HOME;
 const originalAppData = process.env.APPDATA;
 const originalLocalAppData = process.env.LOCALAPPDATA;
-let tempHome: string | null = null;
+let tempHome: TempHome | null = null;
 const originalArgv = [...process.argv];
 const originalExecArgv = [...process.execArgv];
 const originalExecPath = process.execPath;
 
 function setupTempHome(): string {
-	tempHome = mkdtempSync(join(tmpdir(), "kanban-agent-adapters-"));
-	process.env.HOME = tempHome;
-	return tempHome;
+	// Must sandbox HOME *and* USERPROFILE *and* KANBAN_STORAGE_DIR — these cases write
+	// real hook scripts, so a leaked home means writing into the developer's live
+	// Kanban config. See createTempHome.
+	tempHome = createTempHome("kanban-agent-adapters-");
+	return tempHome.path;
 }
 
+// Codex identifies a hook's trust entry by the pseudo-path of the config source it
+// came from, and that literal is platform-specific (see codexSessionFlagsConfigSource).
+const CODEX_SESSION_FLAGS_CONFIG_SOURCE =
+	process.platform === "win32" ? String.raw`C:\<session-flags>\config.toml` : "/<session-flags>/config.toml";
+
+const KANBAN_EXEC_PATH = "/usr/local/bin/node";
+const KANBAN_ENTRYPOINT = "/Users/example/repo/dist/cli.js";
+const KANBAN_COMMAND_PREFIX = buildShellCommandLine(KANBAN_EXEC_PATH, [KANBAN_ENTRYPOINT]);
+
 function setKanbanProcessContext(): void {
-	process.argv = ["node", "/Users/example/repo/dist/cli.js"];
+	process.argv = ["node", KANBAN_ENTRYPOINT];
 	process.execArgv = [];
 	Object.defineProperty(process, "execPath", {
 		configurable: true,
-		value: "/usr/local/bin/node",
+		value: KANBAN_EXEC_PATH,
 	});
 }
 
@@ -53,13 +65,8 @@ function getCodexConfigOverrideValues(args: string[], key: string): string[] {
 }
 
 afterEach(() => {
-	if (originalHome === undefined) {
-		delete process.env.HOME;
-	} else {
-		process.env.HOME = originalHome;
-	}
 	if (tempHome) {
-		rmSync(tempHome, { recursive: true, force: true });
+		tempHome.cleanup();
 		tempHome = null;
 	}
 	if (originalAppData === undefined) {
@@ -106,11 +113,9 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(getCodexConfigOverrideValues(launch.args, "features.codex_hooks")).toEqual([]);
 		const hookTrustState = getCodexConfigOverrideValues(launch.args, "hooks.state");
 		expect(hookTrustState).toHaveLength(1);
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:user_prompt_submit:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:stop:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:permission_request:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:pre_tool_use:0:0"');
-		expect(hookTrustState[0]).toContain('"/<session-flags>/config.toml:post_tool_use:0:0"');
+		for (const event of ["user_prompt_submit", "stop", "permission_request", "pre_tool_use", "post_tool_use"]) {
+			expect(hookTrustState[0]).toContain(`${JSON.stringify(`${CODEX_SESSION_FLAGS_CONFIG_SOURCE}:${event}:0:0`)}`);
+		}
 		expect(hookTrustState[0]).toContain('trusted_hash="sha256:');
 		expect(launchCommand).toContain("timeout=5");
 		expect(launchCommand).not.toContain("codex-wrapper");
@@ -134,8 +139,12 @@ describe("prepareAgentLaunch hook strategies", () => {
 
 		const developerInstructions = getCodexConfigOverrideValues(launch.args, "developer_instructions");
 		expect(developerInstructions).toHaveLength(1);
-		expect(developerInstructions[0]).toContain("Kanban sidebar agent");
-		expect(developerInstructions[0]).toContain("'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task create");
+		// The override is JSON.stringify'd onto the command line, so decode before
+		// matching: on Windows the command prefix is double-quoted and those quotes come
+		// back escaped, which a raw substring match would miss.
+		const decodedInstructions = JSON.parse(developerInstructions[0] ?? '""') as string;
+		expect(decodedInstructions).toContain("Kanban sidebar agent");
+		expect(decodedInstructions).toContain(`${KANBAN_COMMAND_PREFIX} task create`);
 		expect(getCodexConfigOverrideValues(launch.args, "check_for_update_on_startup")).toEqual(["false"]);
 	});
 

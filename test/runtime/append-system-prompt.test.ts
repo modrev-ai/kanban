@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 
+import { buildShellCommandLine } from "../../src/core/shell";
 import {
 	renderAppendSystemPrompt,
 	resolveAppendSystemPromptCommandPrefix,
 	resolveHomeAgentAppendSystemPrompt,
 } from "../../src/prompts/append-system-prompt";
+
+// The prefix is shell-quoted for the host platform — single quotes on POSIX, double
+// quotes on Windows — so derive the expectation instead of hardcoding one platform's
+// quoting. What these cases actually assert is *which* parts make up the fallback
+// invocation (execPath + entrypoint), not how they get quoted.
+function expectedCommandPrefix(execPath: string, entrypoint: string): string {
+	return buildShellCommandLine(execPath, [entrypoint]);
+}
 
 describe("resolveAppendSystemPromptCommandPrefix", () => {
 	it("returns npx prefix for npx transient installs", () => {
@@ -36,7 +45,7 @@ describe("resolveAppendSystemPromptCommandPrefix", () => {
 			argv: ["node", "/Users/example/repo/dist/cli.js"],
 			resolveRealPath: (path) => path,
 		});
-		expect(prefix).toBe("'/usr/local/bin/node' '/Users/example/repo/dist/cli.js'");
+		expect(prefix).toBe(expectedCommandPrefix("/usr/local/bin/node", "/Users/example/repo/dist/cli.js"));
 	});
 
 	it("falls back to the current runnable invocation when realpath resolution fails", () => {
@@ -50,7 +59,7 @@ describe("resolveAppendSystemPromptCommandPrefix", () => {
 				throw new Error("missing");
 			},
 		});
-		expect(prefix).toBe("'/usr/local/bin/node' '/tmp/missing-kanban-cli.js'");
+		expect(prefix).toBe(expectedCommandPrefix("/usr/local/bin/node", "/tmp/missing-kanban-cli.js"));
 	});
 });
 
@@ -101,7 +110,9 @@ describe("resolveHomeAgentAppendSystemPrompt", () => {
 			resolveRealPath: (path) => path,
 		});
 		expect(prompt).toContain("Kanban sidebar agent");
-		expect(prompt).toContain("'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task list");
+		expect(prompt).toContain(
+			`${expectedCommandPrefix("/usr/local/bin/node", "/Users/example/repo/dist/cli.js")} task list`,
+		);
 		expect(prompt).toContain("Current home agent: `codex`");
 		expect(prompt).toContain("codex mcp add linear --url https://mcp.linear.app/mcp");
 		expect(prompt).not.toContain("claude mcp add --transport http --scope user linear https://mcp.linear.app/mcp");

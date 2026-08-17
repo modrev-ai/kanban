@@ -36,6 +36,16 @@ function runGit(cwd: string, args: string[]): string {
 	return result.stdout.trim();
 }
 
+function initTestRepository(repoPath: string): void {
+	runGit(repoPath, ["init"]);
+	runGit(repoPath, ["config", "user.name", "Kanban Test"]);
+	runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+	// Git for Windows defaults core.autocrlf to true, which rewrites LF to CRLF on
+	// checkout. These cases assert byte-exact file contents after worktree/patch
+	// round-trips, so pin the repo to the platform-independent behavior.
+	runGit(repoPath, ["config", "core.autocrlf", "false"]);
+}
+
 async function withTemporaryHome<T>(run: () => Promise<T>): Promise<T> {
 	const { path: tempHome, cleanup } = createTempDir("kanban-home-");
 	const previousHome = process.env.HOME;
@@ -67,9 +77,7 @@ describe.sequential("task-worktree integration", () => {
 				const repoPath = join(sandboxRoot, "repo");
 				mkdirSync(repoPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				const currentBranch = runGit(repoPath, ["symbolic-ref", "--short", "HEAD"]);
 				const ensured = await ensureTaskWorktreeIfDoesntExist({
@@ -94,9 +102,7 @@ describe.sequential("task-worktree integration", () => {
 				const repoPath = join(sandboxRoot, "repo");
 				mkdirSync(repoPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
 				mkdirSync(join(repoPath, ".husky", "_"), { recursive: true });
@@ -154,9 +160,7 @@ describe.sequential("task-worktree integration", () => {
 				const repoPath = join(sandboxRoot, "repo");
 				mkdirSync(repoPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
 				writeFileSync(join(repoPath, ".gitignore"), "/.next/\n/node_modules/\n", "utf8");
@@ -203,9 +207,7 @@ describe.sequential("task-worktree integration", () => {
 				const repoPath = join(sandboxRoot, "repo");
 				mkdirSync(repoPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
 				writeFileSync(
@@ -252,9 +254,7 @@ describe.sequential("task-worktree integration", () => {
 				const appPath = join(repoPath, "apps", "web");
 				mkdirSync(appPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
 				writeFileSync(join(repoPath, "package.json"), '{\n  "private": true\n}\n', "utf8");
@@ -304,9 +304,7 @@ describe.sequential("task-worktree integration", () => {
 				const repoPath = join(sandboxRoot, "repo");
 				mkdirSync(repoPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
 				writeFileSync(join(repoPath, "tracked.txt"), "base\n", "utf8");
@@ -380,9 +378,7 @@ describe.sequential("task-worktree integration", () => {
 				const repoPath = join(sandboxRoot, "repo");
 				mkdirSync(repoPath, { recursive: true });
 
-				runGit(repoPath, ["init"]);
-				runGit(repoPath, ["config", "user.name", "Kanban Test"]);
-				runGit(repoPath, ["config", "user.email", "kanban-test@example.com"]);
+				initTestRepository(repoPath);
 
 				writeFileSync(join(repoPath, "README.md"), "hello\n", "utf8");
 				runGit(repoPath, ["add", "README.md"]);

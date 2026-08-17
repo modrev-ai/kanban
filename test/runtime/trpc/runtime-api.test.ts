@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
+import { createTempHome } from "../../utilities/temp-home";
 
 const agentRegistryMocks = vi.hoisted(() => ({
 	resolveAgentCommand: vi.fn(),
@@ -265,8 +267,12 @@ describe("createRuntimeApi startTaskSession", () => {
 	let mcpOauthSettingsPath = "";
 
 	beforeEach(() => {
-		mcpSettingsPath = `/tmp/kanban-mcp-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
-		mcpOauthSettingsPath = `/tmp/kanban-mcp-oauth-settings-${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
+		// Built from the real OS temp dir rather than a literal "/tmp/…": the runtime
+		// returns the *resolved* settings path, and on Windows a rooted POSIX path
+		// resolves to the current drive with backslashes ("C:\tmp\…").
+		const settingsSuffix = `${Date.now()}-${Math.random().toString(16).slice(2)}.json`;
+		mcpSettingsPath = join(tmpdir(), `kanban-mcp-settings-${settingsSuffix}`);
+		mcpOauthSettingsPath = join(tmpdir(), `kanban-mcp-oauth-settings-${settingsSuffix}`);
 		process.env.CLINE_MCP_SETTINGS_PATH = mcpSettingsPath;
 		process.env.CLINE_MCP_OAUTH_SETTINGS_PATH = mcpOauthSettingsPath;
 		agentRegistryMocks.resolveAgentCommand.mockReset();
@@ -2640,14 +2646,15 @@ describe("createRuntimeApi startTaskSession", () => {
 	});
 
 	it("runs reset teardown before deleting debug state paths", async () => {
-		const originalHome = process.env.HOME;
-		const tempHome = `/tmp/kanban-reset-home-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-		process.env.HOME = tempHome;
-		mkdirSync(tempHome, { recursive: true });
+		// resetAllState DELETES the resolved state directories, so the home sandbox has
+		// to hold on every platform. A HOME-only sandbox leaks on Windows (os.homedir()
+		// reads USERPROFILE there) and this case then wipes the developer's real Kanban
+		// config instead of a temp dir. See createTempHome.
+		const tempHome = createTempHome("kanban-reset-home-");
 		const debugPaths = [
-			join(tempHome, ".cline", "data"),
-			join(tempHome, ".cline", "kanban"),
-			join(tempHome, ".cline", "worktrees"),
+			join(tempHome.path, ".cline", "data"),
+			join(tempHome.path, ".cline", "kanban"),
+			join(tempHome.path, ".cline", "worktrees"),
 		];
 		for (const path of debugPaths) {
 			mkdirSync(path, { recursive: true });
@@ -2678,24 +2685,16 @@ describe("createRuntimeApi startTaskSession", () => {
 				expect(existsSync(path)).toBe(false);
 			}
 		} finally {
-			if (originalHome === undefined) {
-				delete process.env.HOME;
-			} else {
-				process.env.HOME = originalHome;
-			}
-			rmSync(tempHome, { recursive: true, force: true });
+			tempHome.cleanup();
 		}
 	});
 
 	it("aborts reset path deletion when teardown fails", async () => {
-		const originalHome = process.env.HOME;
-		const tempHome = `/tmp/kanban-reset-home-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-		process.env.HOME = tempHome;
-		mkdirSync(tempHome, { recursive: true });
+		const tempHome = createTempHome("kanban-reset-home-");
 		const debugPaths = [
-			join(tempHome, ".cline", "data"),
-			join(tempHome, ".cline", "kanban"),
-			join(tempHome, ".cline", "worktrees"),
+			join(tempHome.path, ".cline", "data"),
+			join(tempHome.path, ".cline", "kanban"),
+			join(tempHome.path, ".cline", "worktrees"),
 		];
 		for (const path of debugPaths) {
 			mkdirSync(path, { recursive: true });
@@ -2720,12 +2719,7 @@ describe("createRuntimeApi startTaskSession", () => {
 				expect(existsSync(path)).toBe(true);
 			}
 		} finally {
-			if (originalHome === undefined) {
-				delete process.env.HOME;
-			} else {
-				process.env.HOME = originalHome;
-			}
-			rmSync(tempHome, { recursive: true, force: true });
+			tempHome.cleanup();
 		}
 	});
 });
