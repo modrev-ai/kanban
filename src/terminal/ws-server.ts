@@ -7,7 +7,8 @@ import { WebSocketServer } from "ws";
 import type { RuntimeTerminalWsServerMessage } from "../core/api-contract";
 import { parseTerminalWsClientMessage } from "../core/api-validation";
 import { getKanbanRuntimeOrigin } from "../core/runtime-endpoint";
-import { handleSocketUpgrade } from "../server/middleware";
+import { endUpgradeSocket, handleSocketUpgrade } from "../server/middleware";
+import { closeWebSocketsForShutdown } from "../server/websocket-shutdown";
 import type { TerminalSessionService } from "./terminal-session-service";
 
 interface TerminalWebSocketConnectionContext {
@@ -391,8 +392,7 @@ export function createTerminalWebSocketBridge({
 			}
 			// ── Passcode gate for terminal WebSocket upgrades ─────────────────
 			if (validateUpgradeSession !== undefined && !validateUpgradeSession(request.headers.cookie)) {
-				(socket as Socket).write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-				(socket as Socket).destroy();
+				endUpgradeSocket(socket, "401 Unauthorized");
 				return;
 			}
 			// ── End passcode gate ─────────────────────────────────────────────
@@ -401,12 +401,12 @@ export function createTerminalWebSocketBridge({
 			const taskId = url.searchParams.get("taskId")?.trim();
 			const workspaceId = url.searchParams.get("workspaceId")?.trim();
 			if (!taskId || !workspaceId) {
-				socket.destroy();
+				endUpgradeSocket(socket, "400 Bad Request");
 				return;
 			}
 			const terminalManager = resolveTerminalManager(workspaceId);
 			if (!terminalManager) {
-				socket.destroy();
+				endUpgradeSocket(socket, "404 Not Found");
 				return;
 			}
 
@@ -416,7 +416,7 @@ export function createTerminalWebSocketBridge({
 				targetServer.emit("connection", ws, { taskId, workspaceId, clientId, terminalManager });
 			});
 		} catch {
-			socket.destroy();
+			endUpgradeSocket(socket, "400 Bad Request");
 		}
 	});
 
@@ -558,20 +558,10 @@ export function createTerminalWebSocketBridge({
 
 	return {
 		close: async () => {
-			for (const client of ioServer.clients) {
-				try {
-					client.terminate();
-				} catch {
-					// Ignore websocket termination errors during shutdown.
-				}
-			}
-			for (const client of controlServer.clients) {
-				try {
-					client.terminate();
-				} catch {
-					// Ignore websocket termination errors during shutdown.
-				}
-			}
+			await Promise.all([
+				closeWebSocketsForShutdown(ioServer.clients),
+				closeWebSocketsForShutdown(controlServer.clients),
+			]);
 			await new Promise<void>((resolveCloseWebSockets) => {
 				ioServer.close(() => {
 					controlServer.close(() => {

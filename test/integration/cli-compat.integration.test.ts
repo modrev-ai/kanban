@@ -5,13 +5,17 @@ import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { CLI_COMMAND_TIMEOUT_MS } from "../utilities/integration-timeouts";
+
 const requireFromHere = createRequire(import.meta.url);
 
 function resolveTsxLoaderImportSpecifier(): string {
 	return pathToFileURL(requireFromHere.resolve("tsx")).href;
 }
 
-describe("cli compatibility flags", () => {
+// Spawns the CLI through tsx, which recompiles the entry graph in the child process:
+// ~10s on Windows, against vitest's 15s default. Too tight to rely on.
+describe("cli compatibility flags", { timeout: CLI_COMMAND_TIMEOUT_MS * 2 }, () => {
 	it("accepts the deprecated --agent flag as a no-op", () => {
 		const result = spawnSync(
 			process.execPath,

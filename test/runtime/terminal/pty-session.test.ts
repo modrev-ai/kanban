@@ -94,7 +94,11 @@ describe("PtySession", () => {
 			binary: "codex",
 			args: ["--foo", "hello world"],
 			cwd: "C:/repo",
-			env: { TERM: "xterm-256color" },
+			// PATH must be pinned empty: PtySession merges process.env into the launch
+			// env, and the cmd-vs-direct decision probes PATH for a real `codex.exe`.
+			// On a Windows machine that actually has Codex installed, the real PATH
+			// resolves it to .exe and the launch goes direct instead of through cmd.
+			env: { TERM: "xterm-256color", PATH: "", PATHEXT: ".com;.exe;.bat;.cmd" },
 			cols: 120,
 			rows: 40,
 		});

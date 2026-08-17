@@ -13,6 +13,7 @@ import type { ClineTaskSessionService } from "../../../src/cline-sdk/cline-task-
 import { createInMemoryClineTaskSessionService } from "../../../src/cline-sdk/cline-task-session-service";
 import { createClineWatcherRegistry } from "../../../src/cline-sdk/cline-watcher-registry";
 import type { RuntimeTaskImage, RuntimeTaskSessionMode } from "../../../src/core/api-contract";
+import { buildShellCommandLine } from "../../../src/core/shell";
 
 const originalArgv = [...process.argv];
 const originalExecArgv = [...process.execArgv];
@@ -341,12 +342,18 @@ async function waitForTaskSessionId(runtime: FakeClineSessionRuntimeController, 
 	return runtime.getTaskSessionId(taskId) ?? "session-1";
 }
 
+const KANBAN_EXEC_PATH = "/usr/local/bin/node";
+const KANBAN_ENTRYPOINT = "/Users/example/repo/dist/cli.js";
+// Shell-quoted for the host platform (single quotes on POSIX, double on Windows), so
+// derive it rather than hardcoding one platform's quoting.
+const KANBAN_COMMAND_PREFIX = buildShellCommandLine(KANBAN_EXEC_PATH, [KANBAN_ENTRYPOINT]);
+
 function setKanbanProcessContext(): void {
-	process.argv = ["node", "/Users/example/repo/dist/cli.js"];
+	process.argv = ["node", KANBAN_ENTRYPOINT];
 	process.execArgv = [];
 	Object.defineProperty(process, "execPath", {
 		configurable: true,
-		value: "/usr/local/bin/node",
+		value: KANBAN_EXEC_PATH,
 	});
 }
 
@@ -1082,9 +1089,7 @@ describe("InMemoryClineTaskSessionService", () => {
 		);
 		expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				systemPrompt: expect.stringContaining(
-					"'/usr/local/bin/node' '/Users/example/repo/dist/cli.js' task create",
-				),
+				systemPrompt: expect.stringContaining(`${KANBAN_COMMAND_PREFIX} task create`),
 			}),
 		);
 	});

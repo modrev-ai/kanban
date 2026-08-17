@@ -8,6 +8,7 @@ import {
 	setKanbanRuntimePort,
 } from "../../../src/core/runtime-endpoint";
 import {
+	endUpgradeSocket,
 	evaluateCors,
 	evaluateHost,
 	getAllowedHostHeaders,
@@ -21,6 +22,16 @@ const ALLOWED_HOSTS = new Set(["localhost:3484", "127.0.0.1:3484"]);
 
 function makeFakeRequest(headers: Partial<IncomingMessage["headers"]>, method = "GET"): IncomingMessage {
 	return { method, headers } as IncomingMessage;
+}
+
+// Rejections are now flushed and half-closed rather than aborted, so the bytes arrive
+// asynchronously; drain the stream to end before asserting on them.
+async function readSocket(socket: PassThrough): Promise<string> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of socket) {
+		chunks.push(chunk as Buffer);
+	}
+	return Buffer.concat(chunks).toString("utf8");
 }
 
 describe("evaluateCors", () => {
@@ -151,33 +162,77 @@ describe("handleSocketUpgrade", () => {
 		expect(socket.destroyed).toBe(false);
 	});
 
-	it("rejects upgrades from a disallowed origin with a 403 status line", () => {
+	it("rejects upgrades from a disallowed origin with a 403 status line", async () => {
 		const socket = new PassThrough();
-		const written: Buffer[] = [];
-		socket.on("data", (chunk) => {
-			written.push(chunk as Buffer);
-		});
 		const request = makeFakeRequest({ host: "127.0.0.1:3484", origin: "http://evil.example.com" });
 		const result = handleSocketUpgrade(request, socket);
 		expect(result).toEqual({ end: true });
-		expect(socket.destroyed).toBe(true);
-		expect(Buffer.concat(written).toString("utf8")).toContain("HTTP/1.1 403 Forbidden");
+		// The status line MUST reach the peer. Destroying the socket instead of
+		// flushing it resets the connection, so a proxy in front of the runtime (the
+		// Vite dev server's /api ws proxy) reports only `read ECONNRESET` and the
+		// actual reason is lost.
+		expect(await readSocket(socket)).toContain("HTTP/1.1 403 Forbidden");
 	});
 
-	it("rejects upgrades whose Host header doesn't match the allowlist", () => {
+	it("rejects upgrades whose Host header doesn't match the allowlist", async () => {
 		const socket = new PassThrough();
 		const request = makeFakeRequest({ host: "attacker.example.com:3484", origin: ALLOWED_ORIGIN });
 		const result = handleSocketUpgrade(request, socket);
 		expect(result).toEqual({ end: true });
-		expect(socket.destroyed).toBe(true);
+		expect(await readSocket(socket)).toContain("HTTP/1.1 403 Forbidden");
 	});
 
-	it("rejects upgrades with a missing Host header", () => {
+	it("rejects upgrades with a missing Host header", async () => {
 		const socket = new PassThrough();
 		const request = makeFakeRequest({});
 		const result = handleSocketUpgrade(request, socket);
 		expect(result).toEqual({ end: true });
-		expect(socket.destroyed).toBe(true);
+		expect(await readSocket(socket)).toContain("HTTP/1.1 403 Forbidden");
+	});
+
+	it("rejects an upgrade only once even though both bridges run the gate", async () => {
+		const socket = new PassThrough();
+		const request = makeFakeRequest({ host: "127.0.0.1:3484", origin: "http://evil.example.com" });
+
+		expect(handleSocketUpgrade(request, socket)).toEqual({ end: true });
+		// The runtime-state and terminal bridges both gate the same request. Rejecting
+		// twice would write to an already-destroyed socket, and an unhandled 'error' on
+		// a raw upgrade socket crashes the runtime.
+		expect(handleSocketUpgrade(request, socket)).toEqual({ end: true });
+
+		const response = await readSocket(socket);
+		expect(response).toContain("HTTP/1.1 403 Forbidden");
+		expect(response.match(/HTTP\/1\.1 403 Forbidden/g)).toHaveLength(1);
+	});
+
+	it("reuses the allow decision across both bridges", () => {
+		const socket = new PassThrough();
+		const request = makeFakeRequest({ host: "127.0.0.1:3484", origin: ALLOWED_ORIGIN });
+
+		expect(handleSocketUpgrade(request, socket)).toEqual({ end: false });
+		expect(handleSocketUpgrade(request, socket)).toEqual({ end: false });
+		expect(socket.destroyed).toBe(false);
+	});
+});
+
+describe("endUpgradeSocket", () => {
+	it("flushes the status line and then closes the connection", async () => {
+		const socket = new PassThrough();
+
+		endUpgradeSocket(socket, "404 Not Found");
+
+		const response = await readSocket(socket);
+		expect(response).toContain("HTTP/1.1 404 Not Found");
+		expect(response).toContain("Connection: close");
+	});
+
+	it("does not throw when the peer already went away", () => {
+		const socket = new PassThrough();
+		socket.destroy();
+
+		// Node attaches no 'error' listener to a raw upgrade socket, so writing to a
+		// dead one would surface as an unhandled 'error' event and kill the process.
+		expect(() => endUpgradeSocket(socket, "403 Forbidden")).not.toThrow();
 	});
 });
 

@@ -45,7 +45,7 @@ import { createProjectsApi } from "../trpc/projects-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
 import { getWebUiDir, normalizeRequestPath, readAsset } from "./assets";
-import { handleHttpRequest, handleSocketUpgrade } from "./middleware";
+import { endUpgradeSocket, handleHttpRequest, handleSocketUpgrade } from "./middleware";
 import type { RuntimeStateHub } from "./runtime-state-hub";
 import type { WorkspaceRegistry } from "./workspace-registry";
 
@@ -437,7 +437,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		try {
 			requestUrl = new URL(request.url ?? "/", getKanbanRuntimeOrigin());
 		} catch {
-			socket.destroy();
+			endUpgradeSocket(socket, "400 Bad Request");
 			return;
 		}
 		if (normalizeRequestPath(requestUrl.pathname) !== "/api/runtime/ws") {
@@ -451,8 +451,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			const bearerToken = extractBearerToken(request.headers.authorization);
 			const internalAuth = bearerToken !== null && validateInternalToken(bearerToken);
 			if (!sessionAuth && !internalAuth) {
-				socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-				socket.destroy();
+				endUpgradeSocket(socket, "401 Unauthorized");
 				return;
 			}
 		}
@@ -474,12 +473,16 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 					}
 				: undefined,
 	});
+	// Registered last so it runs after every bridge above has had its chance to claim
+	// the upgrade. Anything still unclaimed is a path we do not serve; answer it with a
+	// 404 rather than destroying the socket, which would reach the caller as a bare
+	// connection reset.
 	server.on("upgrade", (request, socket) => {
 		const handled = (request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled;
 		if (handled) {
 			return;
 		}
-		socket.destroy();
+		endUpgradeSocket(socket, "404 Not Found");
 	});
 
 	await new Promise<void>((resolveListen, rejectListen) => {

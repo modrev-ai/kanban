@@ -735,13 +735,33 @@ function createProgram(invocationArgs: string[]): Command {
 	return program;
 }
 
+// One-shot commands must not linger, but they must not be *aborted* either.
+// `process.exit()` tears the event loop down immediately, and on Windows a libuv
+// threadpool worker that completes afterwards — the workspace-state file lock issues
+// fs calls right up to the end — then signals an already-closing async handle:
+//   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c
+// The process aborts with 0xC0000409 (exit code 3221226505) even though the command
+// itself succeeded and printed its result, so scripts see a crash instead of `ok`.
+// Let the loop drain on its own and keep a forced exit purely as a hang guard: the
+// timer is unref'd, so a clean drain is never delayed by it.
+const FORCED_EXIT_GRACE_MS = 5_000;
+
+// Widened to match `process.exitCode`, which Node types as `number | string`.
+function exitWhenIdle(code: number | string): void {
+	process.exitCode = code;
+	const forcedExitTimer = setTimeout(() => {
+		process.exit(code);
+	}, FORCED_EXIT_GRACE_MS);
+	forcedExitTimer.unref();
+}
+
 async function run(): Promise<void> {
 	const argv = process.argv.slice(2);
 	const program = createProgram(argv);
 	await program.parseAsync(argv, { from: "user" });
 	if (!shouldAutoOpenBrowserTabForInvocation(argv)) {
 		await Promise.allSettled([disposeCliTelemetryService(), flushNodeTelemetry()]);
-		process.exit(process.exitCode ?? 0);
+		exitWhenIdle(process.exitCode ?? 0);
 	}
 }
 
