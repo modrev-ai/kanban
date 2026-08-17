@@ -136,9 +136,36 @@ function rejectRequest(res: ServerResponse, message: string): { end: boolean } {
 	return { end: true };
 }
 
-function rejectSocket(socket: Duplex): { end: boolean } {
-	socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-	socket.destroy();
+/**
+ * Answers a WebSocket upgrade we are not going to complete, then closes the
+ * connection cleanly.
+ *
+ * `socket.destroy()` aborts the TCP connection with an RST. That discards the status
+ * line we just wrote, so the peer never learns *why* the upgrade was refused: a proxy
+ * in front of the runtime — the Vite dev server proxies `/api` with `ws: true` — can
+ * only report `ws proxy error: Error: read ECONNRESET`, and the browser sees an opaque
+ * 1006 abnormal closure. Writing the response and half-closing with FIN turns an
+ * undiagnosable reset into the 401/403/404 that actually explains the rejection.
+ */
+export function endUpgradeSocket(socket: Duplex, statusLine: string): void {
+	// Node's http server attaches no 'error' listener to a raw upgrade socket, so a
+	// peer that disappears mid-handshake turns an EPIPE/ECONNRESET write into an
+	// unhandled 'error' event, which takes the whole runtime down.
+	socket.on("error", () => {});
+	if (socket.destroyed || !socket.writable) {
+		socket.destroy();
+		return;
+	}
+	socket.end(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () => {
+		socket.destroy();
+	});
+}
+
+function rejectSocket(socket: Duplex, reason: string): { end: boolean } {
+	// A refused upgrade is otherwise silent on the runtime side, which leaves the
+	// proxy's connection error as the only evidence that anything happened.
+	process.stderr.write(`[runtime-server] rejected websocket upgrade: ${reason}\n`);
+	endUpgradeSocket(socket, "403 Forbidden");
 	return { end: true };
 }
 
@@ -179,13 +206,17 @@ export function handleHttpRequest(req: IncomingMessage, res: ServerResponse): { 
 	}
 }
 
-export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): { end: boolean } {
+interface GatedUpgradeRequest extends IncomingMessage {
+	__kanbanUpgradeGate?: { end: boolean };
+}
+
+function evaluateSocketUpgrade(request: IncomingMessage, socket: Duplex): { end: boolean } {
 	const hostDecision = evaluateHost({
 		hostHeader: request.headers.host,
 		allowedHosts: getAllowedHostHeaders(),
 	});
 	if (hostDecision.kind === "reject") {
-		return rejectSocket(socket);
+		return rejectSocket(socket, `Host ${hostDecision.host ?? "(missing)"} not allowed.`);
 	}
 
 	const corsDecision = evaluateCors({
@@ -194,8 +225,23 @@ export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): {
 		allowedOrigins: getAllowedOrigins(),
 	});
 	if (corsDecision.kind === "reject") {
-		return rejectSocket(socket);
+		return rejectSocket(socket, `Origin ${corsDecision.origin} not allowed.`);
 	}
 
 	return { end: false };
+}
+
+export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): { end: boolean } {
+	// The runtime-state and terminal bridges both register an 'upgrade' listener, so
+	// every upgrade runs this gate twice. Memoize the decision on the request: without
+	// it a rejected upgrade is rejected twice, and the second write lands on an
+	// already-destroyed socket as an unhandled 'error' event.
+	const gatedRequest = request as GatedUpgradeRequest;
+	const memoizedDecision = gatedRequest.__kanbanUpgradeGate;
+	if (memoizedDecision) {
+		return memoizedDecision;
+	}
+	const decision = evaluateSocketUpgrade(request, socket);
+	gatedRequest.__kanbanUpgradeGate = decision;
+	return decision;
 }

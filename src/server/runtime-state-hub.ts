@@ -21,6 +21,7 @@ import type {
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { closeWebSocketsForShutdown } from "./websocket-shutdown";
 import { createWorkspaceMetadataMonitor } from "./workspace-metadata-monitor";
 import type { ResolvedWorkspaceStreamTarget, WorkspaceRegistry } from "./workspace-registry";
 
@@ -584,13 +585,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 			clineMessageUnsubscribeByWorkspaceId.clear();
 			workspaceMetadataMonitor.close();
-			for (const client of runtimeStateClients) {
-				try {
-					client.terminate();
-				} catch {
-					// Ignore websocket termination errors during shutdown.
-				}
-			}
+			await closeWebSocketsForShutdown(runtimeStateClients);
 			runtimeStateClients.clear();
 			runtimeStateClientsByWorkspaceId.clear();
 			runtimeStateWorkspaceIdByClient.clear();
