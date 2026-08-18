@@ -1,0 +1,26 @@
+name: Deploy (prod)
+
+# Deploys `main` (the production branch) to the Oracle instance on port 4174.
+# Fires when a pull request into `main` is merged.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # `types: [closed]` fires for abandoned PRs too, so gate on merged. The guard
+    # is skipped for a manual workflow_dispatch run, which has no PR context.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    uses: ./.github/workflows/deploy-oracle.yml
+    with:
+      environment: prod
+      branch: main
+      public_port: 4174
+      internal_port: 3495
+    secrets: inherit

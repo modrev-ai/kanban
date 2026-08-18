@@ -1,0 +1,29 @@
+name: Deploy (dev)
+
+# Deploys the `dev` branch to the Oracle instance on port 4173.
+# Fires when a pull request into `dev` is merged.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # `types: [closed]` fires for abandoned PRs too, so gate on merged. The guard
+    # is skipped for a manual workflow_dispatch run, which has no PR context.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    uses: ./.github/workflows/deploy-oracle.yml
+    with:
+      environment: dev
+      branch: dev
+      public_port: 4173
+      # 3494/3495 rather than the local dev defaults 3484/3485: the sibling
+      # deploy (modrev-ai/cline-kanban-executables) already runs its proxy and
+      # server on 3484/3485 on this instance.
+      internal_port: 3494
+    secrets: inherit
