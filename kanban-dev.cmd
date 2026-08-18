@@ -6,10 +6,22 @@ rem ---------------------------------------------------------------------------
 rem  Launches a local DEV instance: runtime on 3484, Vite web UI on 4173,
 rem  with hot reload. Double-click this file, or run it from a terminal.
 rem
-rem  For a real production build instead, use kanban-prod.cmd.
+rem  There is nothing to "build" here -- the runtime runs from source under
+rem  tsx watch and the web UI is served by Vite. The equivalent staleness check
+rem  is the installed dependency tree, so this refreshes dependencies when the
+rem  version in package.json differs from the one they were installed for.
+rem  Pass --rebuild to force a refresh.
+rem
+rem  For a real production build, use kanban-prod.cmd.
 rem ---------------------------------------------------------------------------
 
 cd /d "%~dp0"
+
+set "FORCE=0"
+for %%a in (%*) do (
+	if /i "%%~a"=="--rebuild" set "FORCE=1"
+	if /i "%%~a"=="-r" set "FORCE=1"
+)
 
 echo.
 echo  ==================================================
@@ -20,7 +32,7 @@ echo.
 call :require_node
 if errorlevel 1 goto :fail
 
-call :require_deps
+call :sync_deps
 if errorlevel 1 goto :fail
 
 call :warn_port 3484 runtime
@@ -60,16 +72,43 @@ if !NODE_MAJOR! LSS 22 (
 )
 exit /b 0
 
-:require_deps
-if exist "node_modules\.package-lock.json" if exist "web-ui\node_modules" exit /b 0
-echo    Installing dependencies. First run only; this takes a few minutes...
+:sync_deps
+set "PKG_VERSION="
+for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "PKG_VERSION=%%v"
+if not defined PKG_VERSION (
+	echo    ERROR: could not read the version from package.json.
+	exit /b 1
+)
+
+set "DEP_VERSION="
+if exist "node_modules\.kanban-dev-version" set /p DEP_VERSION=<"node_modules\.kanban-dev-version"
+
+set "DO_SYNC=0"
+set "REASON="
+if not exist "node_modules\.package-lock.json" ( set "DO_SYNC=1" & set "REASON=dependencies not installed" )
+if not exist "web-ui\node_modules" ( set "DO_SYNC=1" & set "REASON=web-ui dependencies not installed" )
+if "!DO_SYNC!"=="0" if not "!DEP_VERSION!"=="!PKG_VERSION!" (
+	set "DO_SYNC=1"
+	set "REASON=version changed: !DEP_VERSION! -> !PKG_VERSION!"
+)
+if "%FORCE%"=="1" ( set "DO_SYNC=1" & set "REASON=--rebuild requested" )
+
+if "!DO_SYNC!"=="0" (
+	echo    Dependencies are current for version !PKG_VERSION!.
+	echo.
+	exit /b 0
+)
+
+echo    Installing dependencies ^(!REASON!^).
+echo    The first run takes a few minutes; later refreshes are quick...
 echo.
 call npm install
 if errorlevel 1 exit /b 1
 call npm --prefix web-ui install
 if errorlevel 1 exit /b 1
+>"node_modules\.kanban-dev-version" echo !PKG_VERSION!
 echo.
-echo    Dependencies installed.
+echo    Dependencies ready ^(version !PKG_VERSION!^).
 echo.
 exit /b 0
 
