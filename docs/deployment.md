@@ -126,6 +126,38 @@ agents on top of that. If builds start timing out or agents get OOM-killed under
 real use, the fix is a bigger shape (the Always Free ARM `A1.Flex` allows 4 OCPU
 / 24 GB) rather than more tuning here.
 
+### This box also hosts Vaultwarden
+
+The same instance runs a self-hosted **Vaultwarden** (password manager) behind
+Caddy — that is what the pre-existing 80/443 ingress rules are for. It is
+deployed from `modrev-ai/keywee` (`deploy/vaultwarden/`), and its containers set
+no memory limit.
+
+That matters because the kernel OOM-killer scores every process on the box and
+kills the worst offender. During a Kanban build that is usually node or
+`cc1plus` — but it is not guaranteed, and a sustained squeeze could take the
+vault down instead. `restart: unless-stopped` would bring it back, but the vault
+would be unavailable mid-SQLite-write while a deploy ran.
+
+So the deploy marks **its own** processes as the preferred victims, and never
+touches the Vaultwarden stack:
+
+- `remote-deploy.sh` raises its own `oom_score_adj` to 500 before building. The
+  value is inherited across fork/exec, so every `npm`, `node`, and compiler
+  process the build spawns inherits it. Raising the score needs no privileges —
+  only lowering it below 0 requires `CAP_SYS_RESOURCE`.
+- Both systemd units set `OOMScoreAdjust=500`, so the long-running app and proxy
+  carry the same preference.
+
+The failure mode is now "the deploy died" rather than "the password manager
+died". This is a preference, not a guarantee — it biases the kernel's choice, it
+does not cap memory. If you want a hard ceiling, add `MemoryMax=` to the units,
+but pick the number from an observed working set rather than guessing, or the app
+will be killed during normal use.
+
+Given the vault shares this hardware, running **both** dev and prod here is worth
+questioning. One environment, or moving to an `A1.Flex`, is the safer shape.
+
 ## One-time server prerequisites
 
 The deploy script installs what it can, but these must already be true:
@@ -182,7 +214,8 @@ The ingress rules above use `0.0.0.0/0`, matching the posture already in place f
 ## What the remote script does
 
 1. Verifies Node.js 22+ and installs the build toolchain if needed.
-2. Ensures swap exists and caps the build's JS heap.
+2. Ensures swap exists, caps the build's JS heap, and marks itself the preferred
+   OOM victim so a squeeze cannot take down the co-hosted Vaultwarden.
 3. Fresh pull: clone if absent, otherwise `fetch` + `reset --hard origin/<branch>`
    + `git clean -xdff`. Nothing from a previous build survives.
 4. Full build: `npm ci` (root and `web-ui`), then `npm run build`. Fails loudly if

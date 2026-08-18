@@ -76,7 +76,7 @@ if [ ${#missing_build_deps[@]} -gt 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Swap
+# 2. Memory guards
 #
 # The target is an Always Free VM.Standard.E2.1.Micro: 1 OCPU, 1 GB RAM. A full
 # build does not fit in that. node-gyp compiling node-pty and rollup bundling the
@@ -87,7 +87,7 @@ fi
 # Swap makes the build slow instead of fatal. Deploying two environments on this
 # shape leaves very little headroom, so this is not optional here.
 # ---------------------------------------------------------------------------
-echo "=== [2/8] Ensuring swap is available ==="
+echo "=== [2/8] Memory guards (swap, heap cap, OOM priority) ==="
 
 MEM_TOTAL_MB=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo)
 SWAP_TOTAL_MB=$(awk '/^SwapTotal:/ {print int($2/1024)}' /proc/meminfo)
@@ -113,6 +113,22 @@ fi
 # physical RAM (~256MB on a 1GB box) and rollup dies with a heap OOM long before
 # swap is ever touched.
 export NODE_OPTIONS="--max-old-space-size=1536"
+
+# This instance also hosts Vaultwarden (a password manager) behind Caddy, in
+# containers with no memory limit. Under pressure the kernel OOM-killer scores
+# every process and kills the worst offender, and there is no guarantee that is
+# ours -- a squeeze during the build could take the vault down instead.
+#
+# Raising our own oom_score_adj makes the kernel prefer to kill *this* build and
+# everything it spawns (the value is inherited across fork/exec) before touching
+# anything else on the box. Raising the score needs no privileges; only lowering
+# it below 0 requires CAP_SYS_RESOURCE. The failure mode becomes "the deploy
+# died", never "the password manager died".
+if [ -w /proc/self/oom_score_adj ] && echo 500 > /proc/self/oom_score_adj 2>/dev/null; then
+	echo "build oom_score_adj = $(cat /proc/self/oom_score_adj) (preferred OOM victim)"
+else
+	echo "  (could not raise oom_score_adj; continuing)"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. Fresh pull
@@ -195,6 +211,8 @@ Environment=KANBAN_RUNTIME_PORT=${INTERNAL_PORT}
 Environment=KANBAN_STORAGE_DIR=${STATE_DIR}
 Environment=KANBAN_NO_AUTO_UPDATE=1
 ExecStart=${NODE_BIN} ${APP_DIR}/dist/cli.js --no-open --host 127.0.0.1 --port ${INTERNAL_PORT}
+# Prefer killing this over Vaultwarden/Caddy when the box runs out of memory.
+OOMScoreAdjust=500
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
@@ -225,6 +243,7 @@ Environment=PROXY_PORT=${PUBLIC_PORT}
 Environment=TARGET_HOST=127.0.0.1
 Environment=TARGET_PORT=${INTERNAL_PORT}
 ExecStart=${NODE_BIN} ${APP_DIR}/scripts/deploy/kanban-host-proxy.mjs
+OOMScoreAdjust=500
 Restart=always
 RestartSec=5
 StandardOutput=journal
