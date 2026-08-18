@@ -88,8 +88,6 @@ jobs:
           echo "command -v biome       -> $(command -v biome || echo NOT-FOUND)"
           echo "isolated PATH lookup   -> $(PATH="$BIN" command -v shx || echo NOT-FOUND)"
           echo "fresh bash subshell    -> $(bash -c 'command -v shx' || echo NOT-FOUND)"
-          echo "shopt sourcepath/restricted: $(shopt -o restricted 2>&1 | tr '
-' ' ')"
 
           echo; echo "=== filesystem / mount flags (noexec?) ==="
           df -h "$APP_DIR" 2>&1 | tail -2
