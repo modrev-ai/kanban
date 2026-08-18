@@ -48,17 +48,62 @@ echo "=============================================================="
 # ---------------------------------------------------------------------------
 echo "=== [1/8] Checking toolchain ==="
 
-if ! command -v node >/dev/null 2>&1; then
-	echo "ERROR: node is not installed on this instance." >&2
-	echo "Install Node.js 22+ before deploying (the package requires engines.node >= 22)." >&2
-	exit 1
+# Kanban needs Node 22+ (engines.node). The system node is deliberately NOT
+# upgraded to get there: /usr/local/bin/node is shared with the sibling
+# cline-kanban-executables deployment, whose kanban-server/kanban-proxy units on
+# 3484/3485 run on it. Swapping the major version underneath a running service is
+# not ours to do. Instead, provision a private Node under DEPLOY_PATH and use its
+# absolute path for both the build and our systemd units.
+NODE_REQUIRED_MAJOR=22
+NODE_PINNED_VERSION="v22.23.2"
+TOOLCHAIN_DIR="${DEPLOY_PATH}/toolchain"
+PRIVATE_NODE_DIR="${TOOLCHAIN_DIR}/node-${NODE_PINNED_VERSION}"
+
+system_node_major() {
+	command -v node >/dev/null 2>&1 || return 1
+	node -p 'process.versions.node.split(".")[0]' 2>/dev/null || return 1
+}
+
+SYSTEM_NODE_MAJOR="$(system_node_major || echo 0)"
+if [ "${SYSTEM_NODE_MAJOR:-0}" -ge "$NODE_REQUIRED_MAJOR" ]; then
+	NODE_BIN="$(command -v node)"
+	echo "system node is new enough: ${NODE_BIN} ($(node --version))"
+else
+	echo "system node is $( (node --version 2>/dev/null) || echo 'absent') - provisioning a private Node ${NODE_PINNED_VERSION}"
+	echo "  (leaving /usr/local/bin/node alone; it is shared with the 3484/3485 deployment)"
+
+	case "$(uname -m)" in
+		x86_64) NODE_ARCH="x64" ;;
+		aarch64 | arm64) NODE_ARCH="arm64" ;;
+		*) echo "ERROR: unsupported architecture $(uname -m) for a Node tarball install" >&2; exit 1 ;;
+	esac
+
+	if [ ! -x "${PRIVATE_NODE_DIR}/bin/node" ]; then
+		command -v xz >/dev/null 2>&1 || sudo dnf install -y xz || sudo yum install -y xz || true
+		TARBALL="node-${NODE_PINNED_VERSION}-linux-${NODE_ARCH}.tar.xz"
+		URL="https://nodejs.org/dist/${NODE_PINNED_VERSION}/${TARBALL}"
+		echo "  downloading ${URL}"
+		mkdir -p "$TOOLCHAIN_DIR"
+		TMP_DIR="$(mktemp -d)"
+		curl -fsSL --retry 3 --max-time 300 -o "${TMP_DIR}/${TARBALL}" "$URL"
+		tar -xJf "${TMP_DIR}/${TARBALL}" -C "$TMP_DIR"
+		rm -rf "$PRIVATE_NODE_DIR"
+		mv "${TMP_DIR}/node-${NODE_PINNED_VERSION}-linux-${NODE_ARCH}" "$PRIVATE_NODE_DIR"
+		rm -rf "$TMP_DIR"
+	else
+		echo "  reusing cached ${PRIVATE_NODE_DIR}"
+	fi
+
+	NODE_BIN="${PRIVATE_NODE_DIR}/bin/node"
+	# Put it first on PATH so npm, npx and any node-gyp subprocess all resolve to
+	# this install rather than the system Node 20.
+	export PATH="${PRIVATE_NODE_DIR}/bin:${PATH}"
 fi
 
-NODE_BIN="$(command -v node)"
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-echo "node ${NODE_BIN} ($(node --version))"
-if [ "$NODE_MAJOR" -lt 22 ]; then
-	echo "ERROR: Node.js 22+ is required (found $(node --version))." >&2
+NODE_MAJOR="$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')"
+echo "using node ${NODE_BIN} ($("$NODE_BIN" --version)), npm $(npm --version 2>/dev/null || echo '?')"
+if [ "$NODE_MAJOR" -lt "$NODE_REQUIRED_MAJOR" ]; then
+	echo "ERROR: Node.js ${NODE_REQUIRED_MAJOR}+ is required (resolved $("$NODE_BIN" --version))." >&2
 	exit 1
 fi
 

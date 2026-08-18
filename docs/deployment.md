@@ -105,6 +105,28 @@ base64 -w0 ~/.ssh/your_oracle_key
 
 The deploy fails fast with an explicit list if any of these are missing.
 
+## Node version
+
+Kanban requires Node 22+, and the instance ships Node 20 at
+`/usr/local/bin/node`. That system Node is **shared**: the sibling
+`cline-kanban-executables` deployment runs its `kanban-server` and
+`kanban-proxy` units (ports 3484/3485) on it. Swapping a major version out from
+under a running service is not this deploy's call to make.
+
+So `remote-deploy.sh` provisions its own interpreter instead:
+
+- If the system Node is already 22+, it is used as-is and nothing is downloaded.
+- Otherwise the pinned official tarball (currently `v22.23.2`, arch detected from
+  `uname -m`) is unpacked to `<DEPLOY_PATH>/toolchain/node-<version>/` and put
+  first on `PATH`, so `npm`, `npx`, and any node-gyp subprocess resolve to it.
+  Subsequent deploys reuse the cached copy.
+
+The systemd units reference that interpreter by **absolute path**, so the running
+services do not depend on `PATH` or on whatever the system Node happens to be.
+
+To move to a newer Node, bump `NODE_PINNED_VERSION` in `remote-deploy.sh`; the
+next deploy downloads it and leaves the old one cached on disk.
+
 ## Memory
 
 The instance has **1 GB of RAM and no swap by default**, and a full build does
@@ -162,8 +184,9 @@ questioning. One environment, or moving to an `A1.Flex`, is the safer shape.
 
 The deploy script installs what it can, but these must already be true:
 
-- **Node.js 22+** on `PATH` (`package.json` sets `engines.node >= 22`). The
-  script refuses to continue on anything older.
+- **Node.js** — handled automatically, but read the note below. Kanban needs 22+
+  (`engines.node`). This instance has Node 20 at `/usr/local/bin/node`, and the
+  deploy deliberately does **not** upgrade it.
 - **Passwordless `sudo`** for the SSH user — it writes systemd units and manages
   the firewall.
 - **Build toolchain** (`gcc-c++`, `make`, `python3`, `git`). `node-pty` is a
@@ -213,7 +236,8 @@ The ingress rules above use `0.0.0.0/0`, matching the posture already in place f
 
 ## What the remote script does
 
-1. Verifies Node.js 22+ and installs the build toolchain if needed.
+1. Resolves a Node 22+ interpreter (see [Node version](#node-version)) and
+   installs the build toolchain if needed.
 2. Ensures swap exists, caps the build's JS heap, and marks itself the preferred
    OOM victim so a squeeze cannot take down the co-hosted Vaultwarden.
 3. Fresh pull: clone if absent, otherwise `fetch` + `reset --hard origin/<branch>`
