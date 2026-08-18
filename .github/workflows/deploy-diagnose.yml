@@ -73,6 +73,21 @@ jobs:
             echo "    target exists: $([ -e "node_modules/.bin/$b" ] && echo yes || echo NO-DANGLING-SYMLINK)"
           done
 
+          echo; echo "=== DEPLOY_PATH shape (no value printed) ==="
+          case "$DEPLOY_PATH" in
+            *:*) echo "VERDICT: DEPLOY_PATH CONTAINS A COLON -> unusable in PATH" ;;
+            *)   echo "DEPLOY_PATH has no colon" ;;
+          esac
+          case "$DEPLOY_PATH" in
+            *\*) echo "VERDICT: DEPLOY_PATH CONTAINS A BACKSLASH (windows-style path)" ;;
+            *)     echo "DEPLOY_PATH has no backslash" ;;
+          esac
+          case "$DEPLOY_PATH" in
+            /*) echo "DEPLOY_PATH is absolute" ;;
+            *)  echo "DEPLOY_PATH is relative" ;;
+          esac
+          echo "APP_DIR contains a colon? $(case "$APP_DIR" in *:*) echo YES ;; *) echo no ;; esac)"
+
           echo; echo "=== PATH lookup probes ==="
           BIN="${APP_DIR}/node_modules/.bin"
           echo "BIN=[${BIN}]"
