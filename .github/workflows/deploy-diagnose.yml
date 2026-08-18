@@ -73,11 +73,23 @@ jobs:
             echo "    target exists: $([ -e "node_modules/.bin/$b" ] && echo yes || echo NO-DANGLING-SYMLINK)"
           done
 
-          echo; echo "=== PATH lookup with .bin prepended ==="
-          export PATH="${APP_DIR}/node_modules/.bin:${PATH}"
-          echo "command -v shx -> $(command -v shx || echo NOT-FOUND)"
-          echo "type -a shx    -> $(type -a shx 2>&1 || true)"
-          echo "ls of that dir (first 15):"; ls -la "${APP_DIR}/node_modules/.bin" 2>&1 | head -15
+          echo; echo "=== PATH lookup probes ==="
+          BIN="${APP_DIR}/node_modules/.bin"
+          echo "BIN=[${BIN}]"
+          echo "is dir?        $([ -d "$BIN" ] && echo yes || echo NO)"
+          echo "shx in listing? $(ls -1 "$BIN" 2>/dev/null | grep -x shx || echo 'NOT IN LISTING')"
+          echo "entry count:   $(ls -1 "$BIN" 2>/dev/null | wc -l)"
+          export PATH="${BIN}:${PATH}"
+          hash -r 2>/dev/null || true
+          echo "PATH[1]=[$(echo "$PATH" | cut -d: -f1)]"
+          echo "PATH[1] == BIN ? $([ "$(echo "$PATH" | cut -d: -f1)" = "$BIN" ] && echo yes || echo NO)"
+          echo "sanity, command -v ls  -> $(command -v ls || echo NOT-FOUND)"
+          echo "command -v shx         -> $(command -v shx || echo NOT-FOUND)"
+          echo "command -v biome       -> $(command -v biome || echo NOT-FOUND)"
+          echo "isolated PATH lookup   -> $(PATH="$BIN" command -v shx || echo NOT-FOUND)"
+          echo "fresh bash subshell    -> $(bash -c 'command -v shx' || echo NOT-FOUND)"
+          echo "shopt sourcepath/restricted: $(shopt -o restricted 2>&1 | tr '
+' ' ')"
 
           echo; echo "=== filesystem / mount flags (noexec?) ==="
           df -h "$APP_DIR" 2>&1 | tail -2
