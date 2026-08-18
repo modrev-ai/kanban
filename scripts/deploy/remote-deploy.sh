@@ -67,6 +67,7 @@ system_node_major() {
 SYSTEM_NODE_MAJOR="$(system_node_major || echo 0)"
 if [ "${SYSTEM_NODE_MAJOR:-0}" -ge "$NODE_REQUIRED_MAJOR" ]; then
 	NODE_BIN="$(command -v node)"
+	NPM_CLI=""
 	echo "system node is new enough: ${NODE_BIN} ($(node --version))"
 else
 	echo "system node is $( (node --version 2>/dev/null) || echo 'absent') - provisioning a private Node ${NODE_PINNED_VERSION}"
@@ -95,13 +96,33 @@ else
 	fi
 
 	NODE_BIN="${PRIVATE_NODE_DIR}/bin/node"
-	# Put it first on PATH so npm, npx and any node-gyp subprocess all resolve to
-	# this install rather than the system Node 20.
+	# Invoke npm's JS entrypoint through our own interpreter rather than relying on
+	# PATH. Prepending to PATH is not sufficient on its own: `npm` is a symlink to
+	# a script whose shebang re-resolves `node`, so the system npm can still end up
+	# running the install under the system Node -- which is exactly what happened on
+	# the first attempt (EBADENGINE reported node v20.18.0 despite NODE_BIN being 22).
+	NPM_CLI="${PRIVATE_NODE_DIR}/lib/node_modules/npm/bin/npm-cli.js"
+	if [ ! -f "$NPM_CLI" ]; then
+		echo "ERROR: private Node install has no npm at ${NPM_CLI}" >&2
+		exit 1
+	fi
+	# Still prepend PATH, so nested tools the build spawns (node-gyp, npx, vite)
+	# also pick up this interpreter.
 	export PATH="${PRIVATE_NODE_DIR}/bin:${PATH}"
 fi
 
+# Every npm invocation goes through this, so the install can never silently run
+# under a different interpreter than the one the units will use.
+run_npm() {
+	if [ -n "${NPM_CLI:-}" ]; then
+		"$NODE_BIN" "$NPM_CLI" "$@"
+	else
+		npm "$@"
+	fi
+}
+
 NODE_MAJOR="$("$NODE_BIN" -p 'process.versions.node.split(".")[0]')"
-echo "using node ${NODE_BIN} ($("$NODE_BIN" --version)), npm $(npm --version 2>/dev/null || echo '?')"
+echo "using node ${NODE_BIN} ($("$NODE_BIN" --version)), npm $(run_npm --version 2>/dev/null || echo '?')"
 if [ "$NODE_MAJOR" -lt "$NODE_REQUIRED_MAJOR" ]; then
 	echo "ERROR: Node.js ${NODE_REQUIRED_MAJOR}+ is required (resolved $("$NODE_BIN" --version))." >&2
 	exit 1
@@ -205,18 +226,26 @@ echo "Checked out ${BRANCH} @ ${DEPLOYED_SHA}"
 # ---------------------------------------------------------------------------
 echo "=== [4/8] Installing dependencies and building ==="
 
-# No .git hooks wanted on a deploy target, and npm's fund/audit noise just
-# clutters the Actions log.
 export HUSKY=0
 export NPM_CONFIG_FUND=false
 export NPM_CONFIG_AUDIT=false
-export NODE_ENV=production
 
-# `npm ci` needs devDependencies (esbuild, tsx, vite) to build, so NODE_ENV must
-# not suppress them.
-npm ci --include=dev
-npm ci --include=dev --prefix web-ui
-npm run build
+# NODE_ENV is deliberately NOT exported as "production" here. npm reads it as an
+# implicit --omit=dev, which skipped every devDependency on the first attempt and
+# made the root `prepare` script fail with "husky: command not found" (exit 127).
+# The build needs esbuild, tsx and vite, so dev dependencies are required; the
+# runtime gets NODE_ENV=production from the systemd units instead, which is where
+# it actually matters. `vite build` is production mode by default regardless.
+
+# Git hooks are meaningless on a deploy target, and the root `prepare` script
+# exists only to install them. Dropping it removes the whole failure mode rather
+# than relying on HUSKY=0 (which only silences husky once it is already runnable).
+# Scripts are not part of what `npm ci` validates against the lockfile.
+run_npm pkg delete scripts.prepare >/dev/null
+
+run_npm ci --include=dev
+run_npm ci --include=dev --prefix web-ui
+run_npm run build
 
 if [ ! -f "${APP_DIR}/dist/cli.js" ]; then
 	echo "ERROR: build finished but ${APP_DIR}/dist/cli.js is missing" >&2
