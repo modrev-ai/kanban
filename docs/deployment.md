@@ -121,6 +121,15 @@ So `remote-deploy.sh` provisions its own interpreter instead:
   first on `PATH`, so `npm`, `npx`, and any node-gyp subprocess resolve to it.
   Subsequent deploys reuse the cached copy.
 
+Prepending to `PATH` is **not sufficient on its own**, and assuming it was cost a
+deploy attempt: `npm` is a symlink to a script whose shebang re-resolves `node`,
+so the system npm can still run the install under the system Node — the first
+attempt reported `EBADENGINE ... current: { node: 'v20.18.0' }` even though
+`NODE_BIN` was correctly pointing at 22. Every npm invocation therefore goes
+through a `run_npm` helper that calls npm's JS entrypoint with our interpreter
+explicitly. `PATH` is still prepended, for nested tools the build spawns
+(node-gyp, npx, vite).
+
 The systemd units reference that interpreter by **absolute path**, so the running
 services do not depend on `PATH` or on whatever the system Node happens to be.
 
@@ -134,6 +143,10 @@ not fit in that. node-gyp compiling `node-pty` and rollup bundling the web-ui ar
 both memory-hungry; the OOM-killer takes out the compiler or node with something
 that reads like a random build failure — `Killed`, exit 137, a bare SIGKILL from
 `cc1plus` — rather than anything mentioning memory.
+
+Observed on this instance: `MemTotal` is **498 MB** and it already carries
+**4.5 GB of swap**, so the swapfile step correctly no-ops there. The heap cap and
+OOM guard still apply.
 
 `remote-deploy.sh` therefore, on any host with < 4 GB RAM and < 2 GB swap:
 
@@ -242,8 +255,11 @@ The ingress rules above use `0.0.0.0/0`, matching the posture already in place f
    OOM victim so a squeeze cannot take down the co-hosted Vaultwarden.
 3. Fresh pull: clone if absent, otherwise `fetch` + `reset --hard origin/<branch>`
    + `git clean -xdff`. Nothing from a previous build survives.
-4. Full build: `npm ci` (root and `web-ui`), then `npm run build`. Fails loudly if
-   `dist/cli.js` or `dist/web-ui` is missing afterwards.
+4. Full build: `npm ci` (root and `web-ui`), then `npm run build`, all through the
+   resolved interpreter. `NODE_ENV` is left unset — npm reads `production` as an
+   implicit `--omit=dev`, which strips the build's own toolchain — and the root
+   `prepare` (husky) script is removed, since git hooks are meaningless here.
+   Fails loudly if `dist/cli.js` or `dist/web-ui` is missing afterwards.
 5. Writes both systemd units.
 6. Opens the host firewall; labels the internal port for SELinux.
 7. Enables and restarts both units.
