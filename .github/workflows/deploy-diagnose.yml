@@ -1,0 +1,86 @@
+name: Deploy diagnostics
+
+# Manual, read-only inspection of a deployed environment on the Oracle instance.
+# Exists because a deploy cycle on that box costs ~30 minutes (the npm ci alone),
+# which is far too slow a loop for diagnosing an environment problem. This does
+# no pull, no install and no build -- it inspects whatever is already on disk.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment to inspect"
+        required: true
+        default: dev
+        type: choice
+        options: [dev, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Inspect ${{ inputs.environment }} on the instance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+      ORACLE_USER: ${{ secrets.ORACLE_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - name: Setup SSH key
+        env:
+          SSH_KEY_B64: ${{ secrets.ORACLE_SSH_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s' "$SSH_KEY_B64" | tr -d '[:space:]' | base64 -d > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H -T 20 "$ORACLE_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Inspect
+        run: |
+          ssh -i ~/.ssh/oracle_key \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o StrictHostKeyChecking=accept-new \
+            "${ORACLE_USER}@${ORACLE_HOST}" \
+            "DEPLOY_PATH='${DEPLOY_PATH}' ENVIRONMENT='${ENVIRONMENT}' bash -s" <<'ENDSSH'
+          set -uo pipefail
+          case "$DEPLOY_PATH" in /*) ;; *) DEPLOY_PATH="${HOME}/${DEPLOY_PATH}" ;; esac
+          APP_DIR="${DEPLOY_PATH}/kanban-${ENVIRONMENT}"
+
+          echo "=== identity / cwd ==="
+          id; echo "APP_DIR=${APP_DIR}"
+          cd "$APP_DIR" || { echo "APP_DIR does not exist"; exit 1; }
+          echo "pwd=$(pwd)  pwd -P=$(pwd -P)"
+
+          echo; echo "=== does node_modules/.bin exist? ==="
+          ls -ld node_modules node_modules/.bin 2>&1
+
+          echo; echo "=== the three binaries, as the assertion sees them ==="
+          for b in shx tsx esbuild; do
+            printf '%s: ' "$b"
+            if [ -x "node_modules/.bin/$b" ]; then echo -n "[-x PASS] "; else echo -n "[-x FAIL] "; fi
+            ls -la "node_modules/.bin/$b" 2>&1 | tail -1
+            echo "    readlink -f: $(readlink -f "node_modules/.bin/$b" 2>&1)"
+            echo "    target exists: $([ -e "node_modules/.bin/$b" ] && echo yes || echo NO-DANGLING-SYMLINK)"
+          done
+
+          echo; echo "=== PATH lookup with .bin prepended ==="
+          export PATH="${APP_DIR}/node_modules/.bin:${PATH}"
+          echo "command -v shx -> $(command -v shx || echo NOT-FOUND)"
+          echo "type -a shx    -> $(type -a shx 2>&1 || true)"
+          echo "ls of that dir (first 15):"; ls -la "${APP_DIR}/node_modules/.bin" 2>&1 | head -15
+
+          echo; echo "=== filesystem / mount flags (noexec?) ==="
+          df -h "$APP_DIR" 2>&1 | tail -2
+          findmnt -no TARGET,SOURCE,FSTYPE,OPTIONS --target "$APP_DIR" 2>&1
+
+          echo; echo "=== can it actually execute? ==="
+          "${APP_DIR}/node_modules/.bin/shx" --version 2>&1 | head -3
+
+          echo; echo "=== disk space ==="
+          df -h / /home 2>&1 | head -5
+          ENDSSH
