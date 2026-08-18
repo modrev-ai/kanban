@@ -299,6 +299,26 @@ if [ -n "$missing_bins" ]; then
 fi
 echo "dev toolchain present (shx, tsx, esbuild, vite)"
 
+# Put the project's bin directories on PATH ourselves.
+#
+# npm normally prepends node_modules/.bin when it runs a lifecycle script, so this
+# should be redundant -- but it demonstrably is not here. The previous run proved
+# shx was installed (the assertion above passed) and `npm run clean` still died
+# with "sh: shx: command not found". Invoking npm through its JS entrypoint from a
+# different Node installation appears to leave npm's computed local prefix -- and
+# therefore its .bin injection -- pointing somewhere else.
+#
+# The deploy controls its own environment, so set this explicitly rather than
+# depending on npm's implicit behaviour.
+export PATH="${APP_DIR}/node_modules/.bin:${APP_DIR}/web-ui/node_modules/.bin:${PATH}"
+echo "shx resolves to: $(command -v shx || echo '<NOT FOUND>')"
+echo "tsx resolves to: $(command -v tsx || echo '<NOT FOUND>')"
+if ! command -v shx >/dev/null 2>&1; then
+	echo "ERROR: shx is installed but not resolvable on PATH; the build cannot run." >&2
+	echo "PATH=${PATH}" >&2
+	exit 1
+fi
+
 run_npm run build
 
 if [ ! -f "${APP_DIR}/dist/cli.js" ]; then
