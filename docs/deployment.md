@@ -92,8 +92,15 @@ between repositories. They have to be entered by hand.
 | -------------------- | ----------------------------------------------------------- |
 | `ORACLE_HOST`        | `129.159.69.183`                                             |
 | `ORACLE_USER`        | `opc`  (Oracle Linux 9 default)                              |
-| `DEPLOY_PATH`        | `/home/opc/kanban-deploy`                                    |
+| `DEPLOY_PATH`        | `/home/opc/kanban-deploy` (absolute preferred; see below)     |
 | `ORACLE_SSH_KEY_B64` | **base64-encoded** private key for the instance              |
+
+`DEPLOY_PATH` may be relative — the script resolves it against `$HOME` and
+canonicalizes it before deriving anything. An absolute value is still preferred,
+because a relative one is easy to misread. This matters more than it looks: the
+script `cd`s into the checkout partway through, so before normalization every
+relative path derived from `DEPLOY_PATH` re-rooted at that point, which broke the
+private Node's `PATH` entry and then `NODE_BIN` itself.
 
 The key is base64-encoded because a PEM pasted raw into a secret loses its
 newlines and OpenSSH then rejects it as malformed. Use the same key already in

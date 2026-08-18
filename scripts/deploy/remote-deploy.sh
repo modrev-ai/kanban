@@ -27,6 +27,25 @@ for var in ENVIRONMENT BRANCH PUBLIC_PORT INTERNAL_PORT DEPLOY_PATH REPO_URL; do
 	fi
 done
 
+# Normalize DEPLOY_PATH to an absolute, canonical path before deriving anything
+# from it. This is not defensive tidying -- a relative DEPLOY_PATH silently broke
+# two deploys. The script cd's into APP_DIR partway through, so every relative
+# path derived from DEPLOY_PATH re-roots at that point: the PATH entry for the
+# private Node stopped resolving (installs fell back to the system Node 20 and
+# reported EBADENGINE), and NODE_BIN itself became "No such file or directory".
+# systemd also requires absolute WorkingDirectory/ExecStart, so relative values
+# would have produced broken units even if the build had succeeded.
+case "$DEPLOY_PATH" in
+	/*) ;;
+	*)
+		echo "DEPLOY_PATH is relative (\"${DEPLOY_PATH}\") - resolving against ${HOME}"
+		DEPLOY_PATH="${HOME}/${DEPLOY_PATH}"
+		;;
+esac
+mkdir -p "$DEPLOY_PATH"
+DEPLOY_PATH="$(cd "$DEPLOY_PATH" && pwd -P)"
+echo "deploy path resolved to ${DEPLOY_PATH}"
+
 APP_DIR="${DEPLOY_PATH}/kanban-${ENVIRONMENT}"
 STATE_DIR="${DEPLOY_PATH}/state-${ENVIRONMENT}"
 APP_SERVICE="kanban-${ENVIRONMENT}"
@@ -241,6 +260,13 @@ export NPM_CONFIG_AUDIT=false
 # exists only to install them. Dropping it removes the whole failure mode rather
 # than relying on HUSKY=0 (which only silences husky once it is already runnable).
 # Scripts are not part of what `npm ci` validates against the lockfile.
+# The interpreter was resolved before the cd into APP_DIR; assert it still works
+# from here, so a path problem surfaces as a clear message rather than a bare 127.
+if [ ! -x "$NODE_BIN" ]; then
+	echo "ERROR: node interpreter ${NODE_BIN} is not executable from $(pwd)" >&2
+	exit 1
+fi
+
 run_npm pkg delete scripts.prepare >/dev/null
 
 run_npm ci --include=dev
