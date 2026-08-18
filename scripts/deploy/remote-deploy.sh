@@ -249,12 +249,22 @@ export HUSKY=0
 export NPM_CONFIG_FUND=false
 export NPM_CONFIG_AUDIT=false
 
-# NODE_ENV is deliberately NOT exported as "production" here. npm reads it as an
-# implicit --omit=dev, which skipped every devDependency on the first attempt and
-# made the root `prepare` script fail with "husky: command not found" (exit 127).
-# The build needs esbuild, tsx and vite, so dev dependencies are required; the
-# runtime gets NODE_ENV=production from the systemd units instead, which is where
-# it actually matters. `vite build` is production mode by default regardless.
+# Force devDependencies on, at every layer npm looks.
+#
+# The build IS the dev toolchain: shx, esbuild, tsx and vite all live in
+# devDependencies. Merely not exporting NODE_ENV=production was not enough --
+# `shx: command not found` still killed `npm run clean`, so something else in the
+# environment (a login-shell NODE_ENV, a user or global npmrc left by the sibling
+# deployment, or npm's legacy `production` flag) was still selecting a production
+# install. Pin it explicitly rather than trusting the ambient config:
+unset NODE_ENV
+export NPM_CONFIG_PRODUCTION=false
+export NPM_CONFIG_OMIT=
+export NPM_CONFIG_INCLUDE=dev
+# The runtime gets NODE_ENV=production from the systemd units, which is where it
+# actually matters, and `vite build` is production mode by default regardless.
+
+echo "npm config: omit='$(run_npm config get omit 2>/dev/null)' production='$(run_npm config get production 2>/dev/null)' NODE_ENV='${NODE_ENV:-<unset>}'"
 
 # Git hooks are meaningless on a deploy target, and the root `prepare` script
 # exists only to install them. Dropping it removes the whole failure mode rather
@@ -271,6 +281,24 @@ run_npm pkg delete scripts.prepare >/dev/null
 
 run_npm ci --include=dev
 run_npm ci --include=dev --prefix web-ui
+
+# Assert the toolchain the build actually invokes is present. Without this, a
+# production-only install fails deep inside a lifecycle script as a bare
+# "command not found" / exit 127, which says nothing about the real cause.
+missing_bins=""
+for bin in shx tsx esbuild; do
+	[ -x "node_modules/.bin/${bin}" ] || missing_bins="${missing_bins} ${bin}"
+done
+[ -x "web-ui/node_modules/.bin/vite" ] || missing_bins="${missing_bins} vite(web-ui)"
+if [ -n "$missing_bins" ]; then
+	echo "ERROR: devDependencies were not installed - missing:${missing_bins}" >&2
+	echo "The build needs these. npm resolved omit='$(run_npm config get omit 2>/dev/null)'," >&2
+	echo "production='$(run_npm config get production 2>/dev/null)', NODE_ENV='${NODE_ENV:-<unset>}'." >&2
+	echo "Check for a stray ~/.npmrc or /usr/etc/npmrc on the instance setting production=true." >&2
+	exit 1
+fi
+echo "dev toolchain present (shx, tsx, esbuild, vite)"
+
 run_npm run build
 
 if [ ! -f "${APP_DIR}/dist/cli.js" ]; then

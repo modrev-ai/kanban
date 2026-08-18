@@ -48,9 +48,12 @@ jobs:
   deploy:
     name: Deploy ${{ inputs.environment }} to Oracle (port ${{ inputs.public_port }})
     runs-on: ubuntu-latest
-    # A full build on a small instance is slow; node-pty's node-gyp compile and
-    # the web-ui vite build dominate.
-    timeout-minutes: 45
+    # A full build on this instance is genuinely slow. Measured on the 498MB
+    # E2.1.Micro: 18m for the root `npm ci` (node-pty's node-gyp compile) plus 5m
+    # for web-ui, before the vite build even starts. `git clean -xdff` drops
+    # node_modules each time, so every deploy pays that cost. 45m would have timed
+    # out a *succeeding* build.
+    timeout-minutes: 90
     environment: ${{ inputs.environment }}
     # Never run two deploys of the same environment at once: they share a
     # checkout directory and systemd units. Queue rather than cancel, so a
