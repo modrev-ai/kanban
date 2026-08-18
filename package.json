@@ -54,6 +54,8 @@
     "dev": "cross-env NODE_ENV=development tsx watch src/cli.ts",
     "dev:full": "cross-env KANBAN_RUNTIME_PORT=3484 KANBAN_WEB_UI_PORT=4173 node scripts/dev-full.mjs",
     "prod:full": "cross-env KANBAN_RUNTIME_PORT=3485 KANBAN_WEB_UI_PORT=4174 node scripts/dev-full.mjs",
+    "prod:serve": "cross-env NODE_ENV=production node dist/cli.js --port 4174",
+    "prod:local": "npm run build && npm run prod:serve",
     "web:dev": "npm --prefix web-ui run dev",
     "web:build": "npm --prefix web-ui run build",
     "web:typecheck": "npm --prefix web-ui run typecheck",
