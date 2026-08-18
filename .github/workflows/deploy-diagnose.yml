@@ -6,6 +6,11 @@ name: Deploy diagnostics
 # no pull, no install and no build -- it inspects whatever is already on disk.
 
 on:
+  # Temporary: a workflow GitHub has never run cannot be workflow_dispatch'd
+  # ("not found on the default branch"). This push trigger registers it and runs
+  # it once; remove before merging.
+  push:
+    branches: [chore/deploy-diagnostics]
   workflow_dispatch:
     inputs:
       environment:
@@ -27,7 +32,7 @@ jobs:
       ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
       ORACLE_USER: ${{ secrets.ORACLE_USER }}
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      ENVIRONMENT: ${{ inputs.environment }}
+      ENVIRONMENT: ${{ inputs.environment || 'dev' }}
     steps:
       - name: Setup SSH key
         env:
