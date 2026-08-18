@@ -27,6 +27,32 @@ for var in ENVIRONMENT BRANCH PUBLIC_PORT INTERNAL_PORT DEPLOY_PATH REPO_URL; do
 	fi
 done
 
+# Reject a DEPLOY_PATH that cannot be used in PATH.
+#
+# A colon is the PATH separator. Any entry derived from a colon-containing path --
+# node_modules/.bin, the private Node install -- is split into two garbage entries,
+# so nothing resolves. The symptom is maddening rather than obvious: the file is
+# present, `test -x` passes, executing it by absolute path works, and only PATH
+# lookup fails. That cost six deploy attempts and presented variously as
+# "husky: command not found" and "shx: command not found".
+case "$DEPLOY_PATH" in
+	*:*)
+		echo "ERROR: the DEPLOY_PATH secret contains a colon." >&2
+		echo "A colon is the PATH separator, so every PATH entry derived from it is split" >&2
+		echo "into garbage and no project binary (shx, tsx, vite) can be resolved -- even" >&2
+		echo "though the files exist and run fine by absolute path." >&2
+		echo "Set DEPLOY_PATH to a plain POSIX path, e.g. /home/opc/kanban-deploy." >&2
+		exit 1
+		;;
+esac
+case "$DEPLOY_PATH" in
+	*[[:space:]]*)
+		echo "ERROR: the DEPLOY_PATH secret contains whitespace, which breaks the systemd" >&2
+		echo "unit files this script generates. Use a path without spaces." >&2
+		exit 1
+		;;
+esac
+
 # Normalize DEPLOY_PATH to an absolute, canonical path before deriving anything
 # from it. This is not defensive tidying -- a relative DEPLOY_PATH silently broke
 # two deploys. The script cd's into APP_DIR partway through, so every relative

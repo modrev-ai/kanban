@@ -95,6 +95,14 @@ between repositories. They have to be entered by hand.
 | `DEPLOY_PATH`        | `/home/opc/kanban-deploy` (absolute preferred; see below)     |
 | `ORACLE_SSH_KEY_B64` | **base64-encoded** private key for the instance              |
 
+`DEPLOY_PATH` **must not contain a colon**, and must not contain whitespace. The
+script rejects both immediately. A colon is especially vicious: it is the `PATH`
+separator, so every entry derived from the deploy path — `node_modules/.bin`, the
+private Node install — is split into two garbage entries and no project binary
+resolves, while the files remain present, `test -x` passes, and absolute-path
+execution works. That combination cost six deploy attempts, surfacing as
+`husky: command not found` and then `shx: command not found`.
+
 `DEPLOY_PATH` may be relative — the script resolves it against `$HOME` and
 canonicalizes it before deriving anything. An absolute value is still preferred,
 because a relative one is easy to misread. This matters more than it looks: the
