@@ -14,14 +14,21 @@ This repository uses three GitHub Actions workflows for quality gates and publis
   - Manual only via `workflow_dispatch`.
   - Publishes a tagged release to npm using OIDC trusted publishing.
   - Creates a GitHub Release using changelog content.
+- `.github/workflows/deploy-dev.yml` / `deploy-prod.yml` / `deploy-oracle.yml`
+  - Deploy the running app to the Oracle Compute instance when a PR is merged
+    into `dev` (port 4173) or `main` (port 4174).
+  - Separate from npm publishing: deploying does not publish, and publishing does
+    not deploy. See [docs/deployment.md](docs/deployment.md).
 
 ## Contributor workflow
 
 For regular development:
 
-- Open a PR to `main`.
+- Open a PR to `main` or `dev`.
 - CI runs `test.yml` automatically.
 - Merge once checks pass.
+- Merging deploys that branch's environment (see
+  [docs/deployment.md](docs/deployment.md)).
 
 For direct pushes to `main`:
 

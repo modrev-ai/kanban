@@ -3,8 +3,12 @@ name: CI
 on:
   push:
     branches: [main]
+  # PRs into `dev` are gated here too, so nothing lands on the branch that
+  # `deploy-dev.yml` immediately publishes without having been tested. Pushes to
+  # `dev` are deliberately not listed: `deploy-dev.yml` already runs `test.yml`,
+  # and adding them here would run the whole matrix twice.
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
