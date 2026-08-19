@@ -48,14 +48,42 @@ Use `http://127.0.0.1:4173` while developing UI so changes hot reload.
 
 Two double-clickable launchers sit at the repo root for local use:
 
-| File | Starts | URL |
-| --- | --- | --- |
-| `kanban-dev.cmd` | dev instance: `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
-| `kanban-prod.cmd` | production build, served from `dist` | http://127.0.0.1:4174 |
+| File | Branch | Starts | URL |
+| --- | --- | --- | --- |
+| `kanban-dev.cmd` | `dev` | `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
+| `kanban-prod.cmd` | `main` | production build, served from `dist` | http://127.0.0.1:4174 |
 
 They are thin wrappers over the npm scripts, so nothing is duplicated. Each one
-checks Node is 22+, warns if its port is already taken, and leaves the window
-open on failure so you can read the error.
+checks Node is 22+ and leaves the window open on failure so you can read the
+error.
+
+### Branch enforcement
+
+Each launcher builds from a fixed branch -- `dev` for dev, `main` for prod -- so
+what you run locally matches what deploys to the corresponding environment. On
+start it checks out that branch and fast-forwards it from the remote.
+
+It will **not** switch branches over uncommitted work. If tracked files are
+modified and you are on some other branch, it stops and tells you to commit or
+stash, rather than moving your checkout underneath you. Untracked files are
+ignored, since they do not block a checkout and this repo normally has some.
+
+If the fast-forward fails (offline, diverged), it says so and continues with the
+local copy of the branch rather than failing the launch.
+
+Pass `--no-branch-check` to build from whatever branch you are on -- useful when
+testing a feature branch.
+
+### Freeing the ports
+
+Before starting, each launcher terminates whatever is LISTENING on the ports it
+needs (3484 and 4173 for dev, 4174 for prod), so a leftover instance cannot cause
+an `EADDRINUSE` failure. It reports the PID and image name it kills, skips the
+system PIDs 0 and 4, and warns rather than failing if a process cannot be
+terminated (which usually means it belongs to another user and needs an elevated
+prompt).
+
+This is deliberately destructive: relaunching is expected to take over the port.
 
 ### Rebuild only on a version change
 

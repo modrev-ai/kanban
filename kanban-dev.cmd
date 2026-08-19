@@ -3,24 +3,31 @@ setlocal EnableDelayedExpansion
 title Kanban DEV - http://127.0.0.1:4173
 
 rem ---------------------------------------------------------------------------
-rem  Launches a local DEV instance: runtime on 3484, Vite web UI on 4173,
-rem  with hot reload. Double-click this file, or run it from a terminal.
+rem  Launches a local DEV instance from the "dev" branch: runtime on 3484, Vite
+rem  web UI on 4173, with hot reload. Double-click this file, or run it from a
+rem  terminal.
 rem
-rem  There is nothing to "build" here -- the runtime runs from source under
-rem  tsx watch and the web UI is served by Vite. The equivalent staleness check
-rem  is the installed dependency tree, so this refreshes dependencies when the
-rem  version in package.json differs from the one they were installed for.
-rem  Pass --rebuild to force a refresh.
+rem  On start it:
+rem    - checks out and fast-forwards "dev" (refuses if you have uncommitted work)
+rem    - frees ports 3484 and 4173 by terminating whatever is listening on them
+rem    - refreshes dependencies when the package.json version has changed
 rem
-rem  For a real production build, use kanban-prod.cmd.
+rem  Flags: --rebuild / -r        force a dependency refresh
+rem         --no-branch-check     build from the current branch instead of "dev"
+rem
+rem  For a real production build from "main", use kanban-prod.cmd.
 rem ---------------------------------------------------------------------------
+
+set "TARGET_BRANCH=dev"
 
 cd /d "%~dp0"
 
 set "FORCE=0"
+set "NO_BRANCH_CHECK=0"
 for %%a in (%*) do (
 	if /i "%%~a"=="--rebuild" set "FORCE=1"
 	if /i "%%~a"=="-r" set "FORCE=1"
+	if /i "%%~a"=="--no-branch-check" set "NO_BRANCH_CHECK=1"
 )
 
 echo.
@@ -32,11 +39,14 @@ echo.
 call :require_node
 if errorlevel 1 goto :fail
 
-call :sync_deps
+call :require_branch "%TARGET_BRANCH%"
 if errorlevel 1 goto :fail
 
-call :warn_port 3484 runtime
-call :warn_port 4173 "web UI"
+call :free_port 3484 runtime
+call :free_port 4173 "web UI"
+
+call :sync_deps
+if errorlevel 1 goto :fail
 
 echo    Runtime : http://127.0.0.1:3484
 echo    Web UI  : http://127.0.0.1:4173     ^<-- open this one
@@ -72,6 +82,86 @@ if !NODE_MAJOR! LSS 22 (
 )
 exit /b 0
 
+:require_branch
+rem Makes sure the checkout is on the branch this launcher builds from.
+rem Switches only when tracked files are clean. Untracked files are ignored --
+set "WANT=%~1"
+if "%NO_BRANCH_CHECK%"=="1" (
+	echo    Branch check skipped ^(--no-branch-check^); using the current checkout.
+	echo.
+	exit /b 0
+)
+where git >nul 2>&1
+if errorlevel 1 (
+	echo    WARNING: git is not on PATH; skipping the branch check.
+	echo.
+	exit /b 0
+)
+git rev-parse --is-inside-work-tree >nul 2>&1
+if errorlevel 1 (
+	echo    WARNING: not a git checkout; skipping the branch check.
+	echo.
+	exit /b 0
+)
+set "CUR="
+for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "CUR=%%b"
+if /i "!CUR!"=="!WANT!" goto :branch_pull
+
+set "DIRTY="
+rem -uno, not --untracked-files=no: for /f silently captures nothing from the
+rem long form, so every tree looked clean and the dirty guard never fired.
+for /f "delims=" %%d in ('git status --porcelain -uno 2^>nul') do set "DIRTY=1"
+if defined DIRTY (
+	echo    ERROR: this launcher builds from the "!WANT!" branch, but the checkout is
+	echo           on "!CUR!" with uncommitted changes.
+	echo.
+	echo           Commit or stash them first, or pass --no-branch-check to build
+	echo           from the current branch instead.
+	exit /b 1
+)
+echo    Switching branch: "!CUR!" -^> "!WANT!"
+git checkout "!WANT!"
+if errorlevel 1 (
+	echo    ERROR: could not check out "!WANT!".
+	exit /b 1
+)
+
+:branch_pull
+echo    Updating "!WANT!" from the remote...
+git pull --ff-only
+if errorlevel 1 (
+	echo    NOTE: could not fast-forward; continuing with the local copy of "!WANT!".
+)
+echo.
+exit /b 0
+
+:free_port
+rem Terminates whatever is LISTENING on the given port, so startup cannot fail
+rem with EADDRINUSE. Skips the system PIDs 0 and 4.
+set "P=%~1"
+set "PLABEL=%~2"
+set "FREED=0"
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":!P! " ^| findstr "LISTENING" 2^>nul') do (
+	if not "%%a"=="0" if not "%%a"=="4" (
+		set "PNAME="
+		for /f "tokens=1 delims=," %%n in ('tasklist /fi "PID eq %%a" /fo csv /nh 2^>nul') do set "PNAME=%%~n"
+		echo    Port !P! ^(!PLABEL!^) in use by PID %%a !PNAME! - terminating.
+		taskkill /F /PID %%a >nul 2>&1
+		if errorlevel 1 (
+			echo    WARNING: could not terminate PID %%a. Stop it manually, or rerun as Administrator.
+		) else (
+			set "FREED=1"
+		)
+	)
+)
+if "!FREED!"=="1" (
+	rem Let Windows release the socket before we bind it again.
+	ping -n 2 127.0.0.1 >nul 2>&1
+	echo    Port !P! freed.
+	echo.
+)
+exit /b 0
+
 :sync_deps
 set "PKG_VERSION="
 for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "PKG_VERSION=%%v"
@@ -86,7 +176,7 @@ if exist "node_modules\.kanban-dev-version" set /p DEP_VERSION=<"node_modules\.k
 set "DO_SYNC=0"
 set "REASON="
 if not exist "node_modules\.package-lock.json" ( set "DO_SYNC=1" & set "REASON=dependencies not installed" )
-if not exist "web-ui\node_modules" ( set "DO_SYNC=1" & set "REASON=web-ui dependencies not installed" )
+if "!DO_SYNC!"=="0" if not exist "web-ui\node_modules" ( set "DO_SYNC=1" & set "REASON=web-ui dependencies not installed" )
 if "!DO_SYNC!"=="0" if not "!DEP_VERSION!"=="!PKG_VERSION!" (
 	set "DO_SYNC=1"
 	set "REASON=version changed: !DEP_VERSION! -> !PKG_VERSION!"
@@ -110,15 +200,6 @@ if errorlevel 1 exit /b 1
 echo.
 echo    Dependencies ready ^(version !PKG_VERSION!^).
 echo.
-exit /b 0
-
-:warn_port
-netstat -ano | findstr ":%~1 " | findstr "LISTENING" >nul 2>&1
-if not errorlevel 1 (
-	echo    WARNING: port %~1 ^(%~2^) is already in use.
-	echo             Another instance is probably running, so startup may fail.
-	echo.
-)
 exit /b 0
 
 :fail
