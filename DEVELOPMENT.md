@@ -48,14 +48,61 @@ Use `http://127.0.0.1:4173` while developing UI so changes hot reload.
 
 Two double-clickable launchers sit at the repo root for local use:
 
-| File | Starts | URL |
-| --- | --- | --- |
-| `kanban-dev.cmd` | dev instance: `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
-| `kanban-prod.cmd` | production build, served from `dist` | http://127.0.0.1:4174 |
+| File | Branch | Starts | URL |
+| --- | --- | --- | --- |
+| `kanban-dev.cmd` | `dev` | `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
+| `kanban-prod.cmd` | `main` | production build, served from `dist` | http://127.0.0.1:4174 |
 
 They are thin wrappers over the npm scripts, so nothing is duplicated. Each one
-checks Node is 22+, warns if its port is already taken, and leaves the window
-open on failure so you can read the error.
+checks Node is 22+ and leaves the window open on failure so you can read the
+error.
+
+### Building what is on the remote
+
+Each launcher builds a fixed branch -- `dev` for dev, `main` for prod -- and
+builds **what is currently on the GitHub remote**, not whatever your local copy
+happens to be. On start it fetches origin and hard-syncs the local branch to
+`origin/<branch>`, then prints the commit it is building:
+
+```
+Fetching "dev" from origin...
+Building origin/dev @ 7a2015e
+```
+
+This is the same thing `scripts/deploy/remote-deploy.sh` does on the server, so a
+local run and a deploy of that branch build the same tree.
+
+Because the sync resets the branch, two situations are **refused** rather than
+destroyed:
+
+| Situation | Why it stops |
+| --- | --- |
+| modified tracked files | the reset would discard uncommitted work |
+| local commits not on origin | the reset would drop them |
+
+In both cases it names the problem and suggests committing, stashing, or pushing.
+Untracked files are ignored -- they do not block a checkout, and this repo
+normally carries some (`kanban/`, `keywee/`).
+
+If origin cannot be reached, it warns and continues with the local copy rather
+than failing the launch.
+
+Two escape hatches:
+
+- `--force-sync` -- sync anyway, discarding local changes and unpushed commits.
+- `--no-branch-check` -- skip all of this and build the current checkout, which
+  is what you want when testing a feature branch.
+
+### Freeing the ports
+
+Before starting, each launcher terminates whatever is LISTENING on the ports it
+needs (3484 and 4173 for dev, 4174 for prod), so a leftover instance cannot cause
+an `EADDRINUSE` failure. It reports the PID and image name it kills, skips the
+system PIDs 0 and 4, and warns rather than failing if a process cannot be
+terminated (which usually means it belongs to another user and needs an elevated
+prompt).
+
+This is deliberately destructive: relaunching is expected to take over the port.
 
 ### Rebuild only on a version change
 
