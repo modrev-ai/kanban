@@ -57,22 +57,41 @@ They are thin wrappers over the npm scripts, so nothing is duplicated. Each one
 checks Node is 22+ and leaves the window open on failure so you can read the
 error.
 
-### Branch enforcement
+### Building what is on the remote
 
-Each launcher builds from a fixed branch -- `dev` for dev, `main` for prod -- so
-what you run locally matches what deploys to the corresponding environment. On
-start it checks out that branch and fast-forwards it from the remote.
+Each launcher builds a fixed branch -- `dev` for dev, `main` for prod -- and
+builds **what is currently on the GitHub remote**, not whatever your local copy
+happens to be. On start it fetches origin and hard-syncs the local branch to
+`origin/<branch>`, then prints the commit it is building:
 
-It will **not** switch branches over uncommitted work. If tracked files are
-modified and you are on some other branch, it stops and tells you to commit or
-stash, rather than moving your checkout underneath you. Untracked files are
-ignored, since they do not block a checkout and this repo normally has some.
+```
+Fetching "dev" from origin...
+Building origin/dev @ 7a2015e
+```
 
-If the fast-forward fails (offline, diverged), it says so and continues with the
-local copy of the branch rather than failing the launch.
+This is the same thing `scripts/deploy/remote-deploy.sh` does on the server, so a
+local run and a deploy of that branch build the same tree.
 
-Pass `--no-branch-check` to build from whatever branch you are on -- useful when
-testing a feature branch.
+Because the sync resets the branch, two situations are **refused** rather than
+destroyed:
+
+| Situation | Why it stops |
+| --- | --- |
+| modified tracked files | the reset would discard uncommitted work |
+| local commits not on origin | the reset would drop them |
+
+In both cases it names the problem and suggests committing, stashing, or pushing.
+Untracked files are ignored -- they do not block a checkout, and this repo
+normally carries some (`kanban/`, `keywee/`).
+
+If origin cannot be reached, it warns and continues with the local copy rather
+than failing the launch.
+
+Two escape hatches:
+
+- `--force-sync` -- sync anyway, discarding local changes and unpushed commits.
+- `--no-branch-check` -- skip all of this and build the current checkout, which
+  is what you want when testing a feature branch.
 
 ### Freeing the ports
 

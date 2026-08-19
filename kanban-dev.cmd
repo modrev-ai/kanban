@@ -24,10 +24,12 @@ cd /d "%~dp0"
 
 set "FORCE=0"
 set "NO_BRANCH_CHECK=0"
+set "FORCE_SYNC=0"
 for %%a in (%*) do (
 	if /i "%%~a"=="--rebuild" set "FORCE=1"
 	if /i "%%~a"=="-r" set "FORCE=1"
 	if /i "%%~a"=="--no-branch-check" set "NO_BRANCH_CHECK=1"
+	if /i "%%~a"=="--force-sync" set "FORCE_SYNC=1"
 )
 
 echo.
@@ -39,7 +41,7 @@ echo.
 call :require_node
 if errorlevel 1 goto :fail
 
-call :require_branch "%TARGET_BRANCH%"
+call :sync_branch "%TARGET_BRANCH%"
 if errorlevel 1 goto :fail
 
 call :free_port 3484 runtime
@@ -82,56 +84,90 @@ if !NODE_MAJOR! LSS 22 (
 )
 exit /b 0
 
-:require_branch
-rem Makes sure the checkout is on the branch this launcher builds from.
-rem Switches only when tracked files are clean. Untracked files are ignored --
+:sync_branch
+rem Makes the checkout match what is currently on the GitHub remote for this
+rem launcher's branch, so a local run builds exactly what the branch deploys.
+rem
+rem Fetches origin, then hard-syncs the local branch to origin/<branch>. Two
+rem things are deliberately refused rather than destroyed:
+rem   - modified tracked files (uncommitted work)
+rem   - local commits not on origin (they would be discarded by the sync)
+rem Untracked files are ignored: they do not block a checkout, and this repo
+rem normally carries some. --force-sync overrides both refusals.
 set "WANT=%~1"
 if "%NO_BRANCH_CHECK%"=="1" (
-	echo    Branch check skipped ^(--no-branch-check^); using the current checkout.
+	echo    Branch sync skipped ^(--no-branch-check^); using the current checkout.
 	echo.
 	exit /b 0
 )
 where git >nul 2>&1
 if errorlevel 1 (
-	echo    WARNING: git is not on PATH; skipping the branch check.
+	echo    WARNING: git is not on PATH; skipping the branch sync.
 	echo.
 	exit /b 0
 )
 git rev-parse --is-inside-work-tree >nul 2>&1
 if errorlevel 1 (
-	echo    WARNING: not a git checkout; skipping the branch check.
+	echo    WARNING: not a git checkout; skipping the branch sync.
 	echo.
 	exit /b 0
 )
+
+echo    Fetching "!WANT!" from origin...
+git fetch --prune origin "!WANT!"
+if errorlevel 1 (
+	echo    WARNING: could not reach origin; continuing with the local copy of "!WANT!".
+	echo.
+	git rev-parse --verify --quiet "!WANT!" >nul 2>&1
+	if errorlevel 1 exit /b 0
+	git checkout "!WANT!" >nul 2>&1
+	exit /b 0
+)
+
+git rev-parse --verify --quiet "origin/!WANT!" >nul 2>&1
+if errorlevel 1 (
+	echo    ERROR: origin has no branch named "!WANT!".
+	exit /b 1
+)
+
+rem Uncommitted work on tracked files: refuse, never stash or discard.
+rem -uno, not --untracked-files=no: for /f silently captures nothing from the
+rem long form, so the guard would never fire.
+set "DIRTY="
+for /f "delims=" %%d in ('git status --porcelain -uno 2^>nul') do set "DIRTY=1"
+if defined DIRTY if not "%FORCE_SYNC%"=="1" (
+	echo    ERROR: you have uncommitted changes to tracked files.
+	echo.
+	echo           This launcher builds what is currently on origin/!WANT!, which
+	echo           would discard them. Commit or stash first, or pass --force-sync
+	echo           to discard, or --no-branch-check to build the current checkout.
+	exit /b 1
+)
+
+rem Local commits that origin does not have would be dropped by the sync.
+set "AHEAD=0"
+for /f "delims=" %%c in ('git rev-list --count origin/!WANT!..!WANT! 2^>nul') do set "AHEAD=%%c"
+if not "!AHEAD!"=="0" if not "%FORCE_SYNC%"=="1" (
+	echo    ERROR: local "!WANT!" has !AHEAD! commit^(s^) that origin does not.
+	echo.
+	echo           Syncing to origin/!WANT! would discard them. Push them first, or
+	echo           pass --force-sync to discard, or --no-branch-check to build the
+	echo           current checkout.
+	exit /b 1
+)
+
 set "CUR="
 for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "CUR=%%b"
-if /i "!CUR!"=="!WANT!" goto :branch_pull
+if /i not "!CUR!"=="!WANT!" echo    Switching branch: "!CUR!" -^> "!WANT!"
 
-set "DIRTY="
-rem -uno, not --untracked-files=no: for /f silently captures nothing from the
-rem long form, so every tree looked clean and the dirty guard never fired.
-for /f "delims=" %%d in ('git status --porcelain -uno 2^>nul') do set "DIRTY=1"
-if defined DIRTY (
-	echo    ERROR: this launcher builds from the "!WANT!" branch, but the checkout is
-	echo           on "!CUR!" with uncommitted changes.
-	echo.
-	echo           Commit or stash them first, or pass --no-branch-check to build
-	echo           from the current branch instead.
+git checkout -B "!WANT!" "origin/!WANT!"
+if errorlevel 1 (
+	echo    ERROR: could not sync "!WANT!" to origin/!WANT!.
 	exit /b 1
 )
-echo    Switching branch: "!CUR!" -^> "!WANT!"
-git checkout "!WANT!"
-if errorlevel 1 (
-	echo    ERROR: could not check out "!WANT!".
-	exit /b 1
-)
-
-:branch_pull
-echo    Updating "!WANT!" from the remote...
-git pull --ff-only
-if errorlevel 1 (
-	echo    NOTE: could not fast-forward; continuing with the local copy of "!WANT!".
-)
+set "HEADSHA="
+for /f "delims=" %%h in ('git rev-parse --short HEAD 2^>nul') do set "HEADSHA=%%h"
+echo    Building origin/!WANT! @ !HEADSHA!
 echo.
 exit /b 0
 
