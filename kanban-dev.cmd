@@ -11,7 +11,9 @@ rem  On start it:
 rem    - fetches origin and checks out the newest vX.Y.Z.R-dev release tag
 rem      (falling back to origin/dev when no dev release exists yet)
 rem    - frees ports 3484 and 4173 by terminating whatever is listening on them
-rem    - refreshes dependencies when the package.json version has changed
+rem    - refreshes dependencies when the checked-out RELEASE has changed, not
+rem      when package.json changes - those are decoupled, and package.json stays
+rem      on one version across many releases
 rem
 rem  Flags: --rebuild / -r     force a dependency refresh
 rem         --no-sync          use the current checkout as-is

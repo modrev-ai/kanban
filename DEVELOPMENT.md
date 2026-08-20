@@ -112,8 +112,8 @@ This is deliberately destructive: relaunching is expected to take over the port.
 
 ### Rebuild only when the release changes
 
-Neither launcher rebuilds on every run. Each records the `package.json` version
-it last worked for and compares on launch:
+Neither launcher rebuilds on every run. Each records the **release** it last
+worked for and compares on launch:
 
 | Launcher | Stamp | Redoes work when |
 | --- | --- | --- |
@@ -122,8 +122,8 @@ it last worked for and compares on launch:
 
 The stamp records **which release** is checked out, not the `package.json`
 version. Those are decoupled: `release.yml` derives tags from git
-(`v1.0.4.1-dev`) while `package.json` stays at its npm version
-(`1.0.3-modrev`) across every one of them. Keying on `package.json` meant the
+(`v1.0.4.1-dev`, `v1.0.6`) while `package.json` sits on a single version
+(`1.0.5`) across every one of them. Keying on `package.json` meant the
 stamp never changed after the first run — dependencies were never refreshed, and
 prod never rebuilt at all, silently serving a stale `dist`.
 
