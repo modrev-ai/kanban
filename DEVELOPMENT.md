@@ -110,19 +110,29 @@ prompt).
 
 This is deliberately destructive: relaunching is expected to take over the port.
 
-### Rebuild only on a version change
+### Rebuild only when the release changes
 
 Neither launcher rebuilds on every run. Each records the `package.json` version
 it last worked for and compares on launch:
 
 | Launcher | Stamp | Redoes work when |
 | --- | --- | --- |
-| `kanban-prod.cmd` | `dist/.build-version` | version differs, or `dist` is missing/incomplete |
-| `kanban-dev.cmd` | `node_modules/.kanban-dev-version` | version differs, or dependencies are not installed |
+| `kanban-prod.cmd` | `dist/.build-release` | a different release is checked out, or `dist` is missing/incomplete |
+| `kanban-dev.cmd` | `node_modules/.kanban-release` | a different release is checked out, or dependencies are not installed |
 
-So a normal restart is immediate, and a version bump triggers exactly one
-rebuild. The launcher prints why it is rebuilding, e.g.
-`Rebuilding (version changed: 1.0.3-modrev -> 1.0.4-modrev)`.
+The stamp records **which release** is checked out, not the `package.json`
+version. Those are decoupled: `release.yml` derives tags from git
+(`v1.0.4.1-dev`) while `package.json` stays at its npm version
+(`1.0.3-modrev`) across every one of them. Keying on `package.json` meant the
+stamp never changed after the first run — dependencies were never refreshed, and
+prod never rebuilt at all, silently serving a stale `dist`.
+
+So a normal restart is immediate, and a new release triggers exactly one rebuild.
+The launcher prints why, e.g.
+`Rebuilding (release changed: v1.0.4.1-dev -> v1.0.4.2-dev)`.
+
+When `--no-sync` is used the stamp falls back to `git describe --tags --always`,
+so a hand-checked-out commit is still detected as a change.
 
 Pass `--rebuild` (or `-r`) to force the work regardless.
 

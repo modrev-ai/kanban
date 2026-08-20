@@ -59,28 +59,23 @@ call :require_deps
 if errorlevel 1 goto :fail
 
 rem --- is the existing dist stale? -------------------------------------------
-set "PKG_VERSION="
-for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "PKG_VERSION=%%v"
-if not defined PKG_VERSION (
-	echo    ERROR: could not read the version from package.json.
-	goto :fail
-)
+call :resolve_release_id
 
 set "BUILT_VERSION="
-if exist "dist\.build-version" set /p BUILT_VERSION=<"dist\.build-version"
+if exist "dist\.build-release" set /p BUILT_VERSION=<"dist\.build-release"
 
 set "DO_BUILD=0"
 set "REASON="
 if not exist "dist\cli.js" ( set "DO_BUILD=1" & set "REASON=no existing build" )
 if "!DO_BUILD!"=="0" if not exist "dist\web-ui\index.html" ( set "DO_BUILD=1" & set "REASON=bundled web UI missing" )
-if "!DO_BUILD!"=="0" if not "!BUILT_VERSION!"=="!PKG_VERSION!" (
+if "!DO_BUILD!"=="0" if not "!BUILT_VERSION!"=="!RELEASE_ID!" (
 	set "DO_BUILD=1"
-	set "REASON=version changed: !BUILT_VERSION! -> !PKG_VERSION!"
+	set "REASON=release changed: !BUILT_VERSION! -^> !RELEASE_ID!"
 )
 if "%FORCE%"=="1" ( set "DO_BUILD=1" & set "REASON=--rebuild requested" )
 
 if "!DO_BUILD!"=="0" (
-	echo    Build is up to date for version !PKG_VERSION! - skipping rebuild.
+	echo    Build is up to date for !RELEASE_ID! - skipping rebuild.
 	echo    Use --rebuild to force one.
 	echo.
 	goto :skip_build
@@ -101,9 +96,9 @@ if not exist "dist\cli.js" (
 
 rem Stamp the version that produced this dist. Written after the build, because
 rem `npm run clean` deletes dist at the start of it.
->"dist\.build-version" echo !PKG_VERSION!
+>"dist\.build-release" echo !RELEASE_ID!
 echo.
-echo    Build complete ^(version !PKG_VERSION!^).
+echo    Build complete ^(!RELEASE_ID!^).
 echo.
 
 :skip_build
@@ -203,6 +198,7 @@ if not defined REL_TAG (
 	)
 	set "HEADSHA="
 	for /f "delims=" %%h in ('git rev-parse --short HEAD 2^>nul') do set "HEADSHA=%%h"
+	set "RELEASE_ID=origin/!WANT!@!HEADSHA!"
 	echo    Running origin/!WANT! @ !HEADSHA!
 	echo.
 	exit /b 0
@@ -213,6 +209,7 @@ if errorlevel 1 (
 	echo    ERROR: could not check out !REL_TAG!.
 	exit /b 1
 )
+set "RELEASE_ID=!REL_TAG!"
 echo    Running release !REL_TAG!
 echo    ^(detached HEAD - run "git checkout !WANT!" to go back to developing^)
 echo.
@@ -267,6 +264,20 @@ echo    Startup failed. The error is above.
 echo.
 pause
 exit /b 1
+
+
+:resolve_release_id
+rem The staleness stamp keys on WHICH RELEASE is checked out, not on the
+rem package.json version. Those are now decoupled: release.yml derives tags from
+rem git (v1.0.4.1-dev) while package.json stays at its npm version (1.0.3-modrev)
+rem across every one of them. Keying on package.json meant the stamp never
+rem changed, so dependencies were never refreshed and - worse - prod never
+rem rebuilt, silently serving a stale dist forever.
+if defined RELEASE_ID exit /b 0
+rem sync was skipped, so fall back to whatever is actually checked out.
+for /f "delims=" %%h in ('git describe --tags --always 2^>nul') do set "RELEASE_ID=%%h"
+if not defined RELEASE_ID set "RELEASE_ID=unknown"
+exit /b 0
 
 :done
 endlocal

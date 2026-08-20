@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5]
+
+- Dropped the `-modrev` prerelease suffix, so releases publish to the npm `latest` dist-tag instead of `modrev`
+- Automated versioning: every merged pull request now tags and publishes a GitHub Release (`vX.Y.Z` from `main`, `vX.Y.Z.R-dev` from `dev`)
+- Windows launchers (`kanban-dev.cmd`, `kanban-prod.cmd`) run the newest release for their channel, free their ports, and rebuild only when that release changes
+- Storage-dir writes are reliable on a synced volume: locks moved off Google Drive, and every filesystem mutation retries the transient errors such volumes produce
+
 ## [1.0.1-modrev]
 
 - Choose the model for each task from a single dropdown that lists Claude Code alongside every registered Modrev model, and set the default for new tasks from the unified Models settings

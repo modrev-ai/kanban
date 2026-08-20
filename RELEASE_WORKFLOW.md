@@ -18,8 +18,8 @@ publishing, and deployment:
   - Never touches `package.json` or npm.
 - `.github/workflows/npm-release.yml`
   - Runs when a pull request is merged into `main`.
-  - Tags **the `package.json` version** and dispatches `publish.yml`.
-  - A merge that does not bump the version is a no-op.
+  - Publishes **the `package.json` version** via `publish.yml`.
+  - Skips when that version is already on npm, so ordinary merges are no-ops.
 - `.github/workflows/publish.yml`
   - Manual only via `workflow_dispatch`.
   - Publishes a tagged release to npm, authenticating with `NPM_TOKEN`.
@@ -53,7 +53,7 @@ mean:
 | --- | --- | --- |
 | Workflow | `release.yml` | `npm-release.yml` -> `publish.yml` |
 | Version from | git tags | `package.json` |
-| Tag shape | `vX.Y.Z`, `vX.Y.Z.R-dev` | `v` + the package version |
+| Tag shape | `vX.Y.Z`, `vX.Y.Z.R-dev` | `v` + the package version (same namespace) |
 | Trigger | every merged PR to `main` or `dev` | a merged PR to `main` that bumps the version |
 | Publishes to npm | no | yes |
 
@@ -78,8 +78,14 @@ Publishing is still a deliberate act, but the tagging is no longer manual:
 2. Bump `package.json` version.
 3. Open a PR to `main` and merge it.
 
-`npm-release.yml` then tags `v<version>` and dispatches `publish.yml`. A merge
-that does not change the version is a no-op, so ordinary merges never publish.
+`npm-release.yml` then ensures `v<version>` exists and dispatches `publish.yml`.
+Whether to publish is decided by asking **npm**, not by whether the tag exists:
+with no prerelease suffix, `release.yml` mints tags in the same namespace and
+runs concurrently, so a tag being present says nothing about publication. A merge
+that does not change the version is a no-op.
+
+Since the version is now plain (no `-modrev`), `publish.yml` derives the
+`latest` dist-tag rather than `modrev`.
 
 ## Manual publish in GitHub UI
 

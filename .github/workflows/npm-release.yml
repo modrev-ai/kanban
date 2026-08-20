@@ -13,10 +13,14 @@ name: npm release
 #                   package.json says, which stays the source of truth for the
 #                   published artifact.
 #
-# The two therefore produce different tags for the same merge, and that is
-# intentional: `v1.0.4` is a repository release, `v1.0.3-modrev` is an npm
-# release. Bumping package.json is still a deliberate, human act -- this
-# workflow only reacts to it. Merges that do not change the version are no-ops.
+# Since the package version carries no prerelease suffix, both workflows mint
+# vX.Y.Z tags in ONE namespace and run concurrently on the same merge. They tag
+# the same merge commit, so whichever gets there first is fine and the other
+# reuses it. What must NOT key on the tag is the "already published" decision --
+# that asks npm directly, or the race would silently skip publishing.
+#
+# Bumping package.json is still a deliberate, human act; this workflow only
+# reacts to it. Merges that do not change the version are no-ops.
 
 on:
   pull_request:
@@ -55,12 +59,22 @@ jobs:
         id: version
         run: |
           set -euo pipefail
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           TAG="v${PACKAGE_VERSION}"
 
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+          # Ask the REGISTRY, not git. The package version carries no prerelease
+          # suffix now, so this workflow and release.yml mint vX.Y.Z tags in one
+          # namespace and run concurrently on the same merge. A tag existing
+          # therefore says nothing about whether the version was published --
+          # release.yml may simply have got there first. Keying on the tag would
+          # make that race silently skip publishing, forever.
+          #
+          # `npm view` exits non-zero with E404 when the version is absent, which
+          # is the expected path, so a failure here is not an error.
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
             echo "already_released=true" >> "$GITHUB_OUTPUT"
-            echo "${TAG} already exists; this merge did not bump the version."
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} is already on npm; this merge did not bump the version."
           else
             echo "already_released=false" >> "$GITHUB_OUTPUT"
           fi
@@ -82,9 +96,18 @@ jobs:
           # which is not on the branch. Tag the real merge commit when there is
           # one; a manual run tags whatever is checked out.
           TARGET="${SHA:-$(git rev-parse HEAD)}"
-          git tag -a "$TAG" -m "npm release ${TAG}" "$TARGET"
-          git push origin "refs/tags/${TAG}"
-          echo "Pushed ${TAG} -> ${TARGET}"
+
+          # release.yml may already have created this exact tag on this exact
+          # merge commit. Reuse it rather than failing: both workflows tag the
+          # same commit, so package.json at that tag is consistent either way,
+          # which is what publish.yml asserts.
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already exists; reusing it."
+          else
+            git tag -a "$TAG" -m "npm release ${TAG}" "$TARGET"
+            git push origin "refs/tags/${TAG}"
+            echo "Pushed ${TAG} -> ${TARGET}"
+          fi
 
       - name: Trigger publish workflow
         if: steps.version.outputs.already_released == 'false'
@@ -110,7 +133,7 @@ jobs:
             echo "### npm release"
             echo ""
             if [ "${ALREADY}" = "true" ]; then
-              echo "Skipped: \`${TAG}\` is already tagged, so package.json was not bumped by this merge."
+              echo "Skipped: \`${TAG}\` is already on npm, so package.json was not bumped by this merge."
             else
               echo "Tagged \`${TAG}\` and dispatched \`publish.yml\` to publish it to npm."
             fi

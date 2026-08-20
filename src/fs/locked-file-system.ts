@@ -3,7 +3,9 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 import type { LockOptions } from "proper-lockfile";
 import * as lockfile from "proper-lockfile";
+import { resolveLockfilePath } from "./lock-location";
 import { lockfileFs } from "./lockfile-fs";
+import { retryTransientFs } from "./transient-fs";
 
 const DEFAULT_LOCK_STALE_MS = 10_000;
 // The retry window MUST comfortably exceed DEFAULT_LOCK_STALE_MS. proper-lockfile
@@ -83,7 +85,7 @@ function createLockOptions(request: LockRequest, lockfilePath: string): LockOpti
 
 async function readFileIfExists(path: string): Promise<string | null> {
 	try {
-		return await readFile(path, "utf8");
+		return await retryTransientFs(() => readFile(path, "utf8"));
 	} catch (error) {
 		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
 			return null;
@@ -94,9 +96,19 @@ async function readFileIfExists(path: string): Promise<string | null> {
 
 export class LockedFileSystem {
 	private async normalizeLockRequest(request: LockRequest): Promise<NormalizedLockRequest> {
+		// The lock lives on local disk, never beside the data. See lock-location.ts:
+		// a mkdir-based mutex does not work on the synced volume the storage dir often
+		// sits on. An explicit lockfilePath still wins, and `lockfileName` remains
+		// honoured for directory locks that want a recognisable name.
+		const lockfilePath =
+			request.lockfilePath ??
+			resolveLockfilePath(
+				request.type === "directory" ? join(request.path, request.lockfileName ?? ".lock") : request.path,
+			);
+		await mkdir(dirname(lockfilePath), { recursive: true });
+
 		if (request.type === "directory") {
 			await mkdir(request.path, { recursive: true });
-			const lockfilePath = request.lockfilePath ?? join(request.path, request.lockfileName ?? ".lock");
 			return {
 				path: request.path,
 				options: createLockOptions(request, lockfilePath),
@@ -105,7 +117,6 @@ export class LockedFileSystem {
 		}
 
 		await mkdir(dirname(request.path), { recursive: true });
-		const lockfilePath = request.lockfilePath ?? `${request.path}.lock`;
 		return {
 			path: request.path,
 			options: createLockOptions(request, lockfilePath),
@@ -154,20 +165,34 @@ export class LockedFileSystem {
 						type: "file" as const,
 					}
 				: options.lock;
+		// Every mutation below carries transient-error backoff. The lock guards against
+		// *other writers*; it does nothing about the antivirus scanner or sync agent
+		// holding a handle on the file we just wrote, which is what EBUSY/EPERM/EACCES/
+		// EINVAL on a synced volume actually is. `rename` is the one that matters most —
+		// it is the atomic commit, and node:fs gives it no retry option at all.
 		const writeOperation = async () => {
 			const existingContent = await readFileIfExists(path);
 			if (existingContent === content) {
 				if (options.executable) {
-					await chmod(path, 0o755);
+					await retryTransientFs(() => chmod(path, 0o755));
 				}
 				return;
 			}
-			await mkdir(dirname(path), { recursive: true });
+			await retryTransientFs(() => mkdir(dirname(path), { recursive: true }));
+			// The temp file MUST stay in the destination directory. Moving it to the OS
+			// temp dir would make the rename cross-volume, which fails with EXDEV.
 			const tempPath = `${path}.tmp.${process.pid}.${Date.now()}.${randomUUID()}`;
-			await writeFile(tempPath, content, "utf8");
-			await rename(tempPath, path);
+			await retryTransientFs(() => writeFile(tempPath, content, "utf8"));
+			try {
+				await retryTransientFs(() => rename(tempPath, path));
+			} catch (error) {
+				// A failed rename leaves the temp file behind. Without this the storage dir
+				// slowly fills with .tmp.<pid>.<ts>.<uuid> files that nothing ever collects.
+				await rm(tempPath, { force: true, maxRetries: 3, retryDelay: 25 }).catch(() => {});
+				throw error;
+			}
 			if (options.executable) {
-				await chmod(path, 0o755);
+				await retryTransientFs(() => chmod(path, 0o755));
 			}
 		};
 		if (lockRequest) {
@@ -187,10 +212,17 @@ export class LockedFileSystem {
 
 	async removePath(path: string, options: { lock: LockRequest; recursive?: boolean; force?: boolean }): Promise<void> {
 		await this.withLock(options.lock, async () => {
-			await rm(path, {
-				recursive: options.recursive,
-				force: options.force,
-			});
+			// maxRetries/retryDelay were absent here, so node:fs's own backoff over
+			// EBUSY/EPERM never ran. retryTransientFs adds the codes rm declines to
+			// retry (notably EINVAL, which is what a synced volume actually returns).
+			await retryTransientFs(() =>
+				rm(path, {
+					recursive: options.recursive,
+					force: options.force,
+					maxRetries: 5,
+					retryDelay: 25,
+				}),
+			);
 		});
 	}
 }

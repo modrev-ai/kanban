@@ -1,6 +1,6 @@
 {
   "name": "@modrev-ai/kanban",
-  "version": "1.0.3-modrev",
+  "version": "1.0.5",
   "description": "A kanban foundation for coding agents",
   "publishConfig": {
     "access": "public",
