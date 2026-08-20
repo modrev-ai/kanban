@@ -2,7 +2,8 @@
 
 ## Overview
 
-This repository uses three GitHub Actions workflows for quality gates and publishing:
+This repository uses several GitHub Actions workflows for quality gates, releases,
+publishing, and deployment:
 
 - `.github/workflows/test.yml`
   - Reusable test workflow used by CI and Publish workflows.
@@ -43,25 +44,46 @@ For direct pushes to `main`:
 
 - CI also runs automatically on push.
 
-## Release responsibilities
+## Two kinds of release
 
-Release prep is intentionally manual on the maintainer side:
+These are separate on purpose, and it is worth being clear about which one you
+mean:
+
+| | Repository release | npm release |
+| --- | --- | --- |
+| Workflow | `release.yml` | `npm-release.yml` -> `publish.yml` |
+| Version from | git tags | `package.json` |
+| Tag shape | `vX.Y.Z`, `vX.Y.Z.R-dev` | `v` + the package version |
+| Trigger | every merged PR to `main` or `dev` | a merged PR to `main` that bumps the version |
+| Publishes to npm | no | yes |
+
+So every merge produces a repository release, and only a version bump produces an
+npm release.
+
+### Repository releases (automatic)
+
+Nothing to do. Merging a PR into `dev` or `main` tags the merge commit and
+creates a GitHub Release:
+
+- `main`: `vX.Y.Z`. `Z` increments per merge; at 50 it rolls over to `Y+1` and
+  `Z` resets to 0.
+- `dev`: `vX.Y.Z.R-dev`. `X.Y.Z` mirrors the latest `main` tag; `R` increments
+  while that base holds and resets to 1 when `main` moves.
+
+### npm releases (a version bump)
+
+Publishing is still a deliberate act, but the tagging is no longer manual:
 
 1. Update `CHANGELOG.md` with a section for the new version.
 2. Bump `package.json` version.
-3. Commit and push those changes.
-4. Create and push a matching git tag in the form `vX.Y.Z` (or prerelease like `vX.Y.Z-beta.1`).
+3. Open a PR to `main` and merge it.
 
-Example:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-Pushing the tag does not publish automatically.
+`npm-release.yml` then tags `v<version>` and dispatches `publish.yml`. A merge
+that does not change the version is a no-op, so ordinary merges never publish.
 
 ## Manual publish in GitHub UI
+
+Still available for republishing or for a tag pushed by hand:
 
 1. Open Actions in GitHub.
 2. Select `Publish` workflow.
