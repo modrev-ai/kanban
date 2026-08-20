@@ -14,8 +14,10 @@ rem  On start it:
 rem    - fetches origin and checks out the newest vX.Y.Z release tag
 rem      (falling back to origin/main when no release exists yet)
 rem    - frees port 4174 by terminating whatever is listening on it
-rem    - rebuilds only when the package.json version differs from the version
-rem      that produced the current dist, or when dist is missing
+rem    - rebuilds only when the checked-out RELEASE differs from the one that
+rem      produced the current dist, or when dist is missing. NOT keyed on the
+rem      package.json version: that stays put across releases, so keying on it
+rem      meant prod never rebuilt and silently served a stale dist
 rem
 rem  Flags: --rebuild / -r     force a rebuild
 rem         --no-sync          use the current checkout as-is
