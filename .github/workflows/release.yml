@@ -66,6 +66,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Fetch all tags
+        # The whole scheme is derived from tags, and actions/checkout does not
+        # reliably bring them down when `ref` is pinned -- verified on a real run,
+        # where the runner saw zero tags and computed the v1.0.0 fallback even
+        # though v0.1.70 exists. Fetch them explicitly rather than trusting it.
+        run: |
+          set -euo pipefail
+          git fetch --force --tags --prune origin
+          echo "tags visible: $(git tag -l | wc -l)"
+
       - name: Resolve target branch and commit
         id: target
         env:
