@@ -24,6 +24,11 @@ on:
     branches: [main, dev]
   workflow_dispatch:
     inputs:
+      branch:
+        description: "Which versioning scheme to run (a manual run has no pull request to infer it from)"
+        type: choice
+        options: [dev, main]
+        default: dev
       dry_run:
         description: "Compute the next version and stop, without tagging or releasing"
         type: boolean
@@ -54,8 +59,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           # The branch the pull request merged into, so the merge commit is
-          # reachable from this checkout.
-          ref: ${{ github.event.pull_request.base.ref || github.ref_name }}
+          # reachable from this checkout. A manual run checks out the branch
+          # named by the input, which lets a dry run be launched from any ref.
+          ref: ${{ github.event.pull_request.base.ref || inputs.branch || github.ref_name }}
           # Full history and all tags: the version is derived entirely from tags.
           fetch-depth: 0
           fetch-tags: true
@@ -64,11 +70,14 @@ jobs:
         id: target
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          INPUT_BRANCH: ${{ inputs.branch }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
 
-          BRANCH="${BASE_REF:-${GITHUB_REF_NAME}}"
+          # Precedence: the pull request's base branch, then the manual input,
+          # then the ref the workflow was launched from.
+          BRANCH="${BASE_REF:-${INPUT_BRANCH:-${GITHUB_REF_NAME}}}"
           case "$BRANCH" in
             main | dev) ;;
             *)
