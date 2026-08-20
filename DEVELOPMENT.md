@@ -44,6 +44,110 @@ npm run web:dev
 
 Use `http://127.0.0.1:4173` while developing UI so changes hot reload.
 
+## Windows launchers
+
+Two double-clickable launchers sit at the repo root for local use:
+
+| File | Runs | Starts | URL |
+| --- | --- | --- | --- |
+| `kanban-dev.cmd` | latest `dev` release | `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
+| `kanban-prod.cmd` | latest `prod` release | production build, served from `dist` | http://127.0.0.1:4174 |
+
+They are thin wrappers over the npm scripts, so nothing is duplicated. Each one
+checks Node is 22+ and leaves the window open on failure so you can read the
+error.
+
+### Running the latest release
+
+Each launcher runs the newest **release** for its channel, not the branch tip:
+
+| Launcher | Channel | Picks the newest | Falls back to |
+| --- | --- | --- | --- |
+| `kanban-dev.cmd` | dev | `vX.Y.Z.R-dev` tag | `origin/dev` |
+| `kanban-prod.cmd` | prod | `vX.Y.Z` tag | `origin/main` |
+
+Those tags are produced by `.github/workflows/release.yml` on every merged pull
+request, so "latest release" and "what that branch last shipped" are the same
+thing. Until the first release exists on a channel, the launcher says so and
+falls back to the branch tip.
+
+The tag is checked out **detached**, so no local branch is ever moved or reset
+and unpushed commits cannot be lost. The launcher prints how to get back:
+
+```
+Running release v1.0.1.10-dev
+(detached HEAD - run "git checkout dev" to go back to developing)
+```
+
+Tag selection is numeric per field, via `scripts/latest-release-tag.mjs`. Both
+lexicographic ordering and `git tag --sort=v:refname` place `v1.0.9` after
+`v1.0.10`, which would silently launch a stale release.
+
+Uncommitted changes to tracked files are **refused** rather than disturbed by the
+checkout. Untracked files are ignored -- they do not block a checkout, and this
+repo normally carries some.
+
+Dependencies install with `npm ci`, not `npm install`: it installs exactly the
+lockfile the release was cut from and leaves `package-lock.json` untouched.
+`npm install` can rewrite the lockfile, which would dirty the tree and block the
+next launch.
+
+Two escape hatches:
+
+- `--force-sync` -- check out the release anyway, discarding local changes.
+- `--no-sync` -- skip all of this and run the current checkout, which is what you
+  want when testing a feature branch. (`--no-branch-check` is accepted as an
+  alias.)
+
+### Freeing the ports
+
+Before starting, each launcher terminates whatever is LISTENING on the ports it
+needs (3484 and 4173 for dev, 4174 for prod), so a leftover instance cannot cause
+an `EADDRINUSE` failure. It reports the PID and image name it kills, skips the
+system PIDs 0 and 4, and warns rather than failing if a process cannot be
+terminated (which usually means it belongs to another user and needs an elevated
+prompt).
+
+This is deliberately destructive: relaunching is expected to take over the port.
+
+### Rebuild only on a version change
+
+Neither launcher rebuilds on every run. Each records the `package.json` version
+it last worked for and compares on launch:
+
+| Launcher | Stamp | Redoes work when |
+| --- | --- | --- |
+| `kanban-prod.cmd` | `dist/.build-version` | version differs, or `dist` is missing/incomplete |
+| `kanban-dev.cmd` | `node_modules/.kanban-dev-version` | version differs, or dependencies are not installed |
+
+So a normal restart is immediate, and a version bump triggers exactly one
+rebuild. The launcher prints why it is rebuilding, e.g.
+`Rebuilding (version changed: 1.0.3-modrev -> 1.0.4-modrev)`.
+
+Pass `--rebuild` (or `-r`) to force the work regardless.
+
+`kanban-dev.cmd` has nothing to build -- it runs from source under `tsx watch`
+with Vite -- so its equivalent staleness check is the installed dependency tree.
+Note the trigger is the **version**, not the lockfile: dependency changes without
+a version bump will not be picked up automatically, so use `--rebuild` after
+pulling changes that touch `package-lock.json`.
+
+The prod stamp is written after the build, because `npm run clean` deletes
+`dist` at the start of it. Both stamps live inside already-gitignored
+directories.
+
+`kanban-prod.cmd` is a **real production build**, not "dev on another port": it
+runs `npm run build` and then serves the bundled web UI from `dist/web-ui` on a
+single port with `NODE_ENV=production` - no Vite, no watcher. That is the same
+shape as the deployed server, so use it when checking production-only behavior.
+
+Note this differs from `npm run prod:full`, which despite its name is a *second
+dev-mode instance* (`tsx watch` + Vite on 3485/4174), not a production build.
+
+Both instances share one `KANBAN_STORAGE_DIR`, matching existing `dev:full` /
+`prod:full` behavior - they show the same board. Set `KANBAN_STORAGE_DIR` before
+launching if you want them isolated.
+
 ## Choose the right workflow
 
 Use `npm run dev:full` when you are actively developing Kanban and want fast iteration. It runs the source checkout with `tsx watch` plus the Vite web UI dev server, so runtime changes reload and web UI changes get HMR.
@@ -162,6 +266,8 @@ npm run unlink
 - `npm run dogfood -- [--project <path>] [--port <number|auto>] [--no-open] [--skip-build]`: build and launch this checkout, optionally targeting a specific project path
 - `npm run dev`: run CLI in watch mode
 - `npm run dev:full`: run the runtime watch server and Vite web UI dev server together
+- `npm run prod:serve`: serve an already-built `dist` in production mode on port 4174
+- `npm run prod:local`: build, then serve it in production mode on port 4174
 - `npm run web:dev`: run web UI dev server
 - `npm run web:build`: build web UI
 - `npm run typecheck`: typecheck runtime

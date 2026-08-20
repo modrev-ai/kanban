@@ -1,0 +1,193 @@
+name: Deploy to Oracle
+
+# Reusable deploy workflow. Called by `deploy-dev.yml` (branch `dev`, port 4173)
+# and `deploy-prod.yml` (branch `main`, port 4174).
+#
+# SSHes into the Oracle Compute instance and runs scripts/deploy/remote-deploy.sh
+# there, which does a fresh pull + full build of the branch and restarts that
+# environment's systemd units. Nothing is built on the runner: the runner only
+# carries the deploy script over and reports the result.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deploy environment: "dev" or "prod"'
+        required: true
+        type: string
+      branch:
+        description: "Branch to build and run on the server"
+        required: true
+        type: string
+      public_port:
+        description: "Port the environment is reachable on (proxy, 0.0.0.0)"
+        required: true
+        type: number
+      internal_port:
+        description: "Loopback port the app itself binds"
+        required: true
+        type: number
+    secrets:
+      ORACLE_HOST:
+        description: "Oracle Compute instance public IP or hostname"
+        required: true
+      ORACLE_USER:
+        description: "SSH username for the Oracle instance (typically opc)"
+        required: true
+      ORACLE_SSH_KEY_B64:
+        description: "Base64-encoded SSH private key for the Oracle instance"
+        required: true
+      DEPLOY_PATH:
+        description: "Remote base directory for checkouts and state"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment }} to Oracle (port ${{ inputs.public_port }})
+    runs-on: ubuntu-latest
+    # A full build on this instance is genuinely slow. Measured on the 498MB
+    # E2.1.Micro: 18m for the root `npm ci` (node-pty's node-gyp compile) plus 5m
+    # for web-ui, before the vite build even starts. `git clean -xdff` drops
+    # node_modules each time, so every deploy pays that cost. 45m would have timed
+    # out a *succeeding* build.
+    timeout-minutes: 90
+    environment: ${{ inputs.environment }}
+    # Never run two deploys of the same environment at once: they share a
+    # checkout directory and systemd units. Queue rather than cancel, so a
+    # half-built checkout is not left behind.
+    concurrency:
+      group: deploy-oracle-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+      ORACLE_USER: ${{ secrets.ORACLE_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      BRANCH: ${{ inputs.branch }}
+      PUBLIC_PORT: ${{ inputs.public_port }}
+      INTERNAL_PORT: ${{ inputs.internal_port }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Verify required secrets are present
+        env:
+          SSH_KEY_B64: ${{ secrets.ORACLE_SSH_KEY_B64 }}
+        run: |
+          missing=""
+          [ -n "$ORACLE_HOST" ] || missing="$missing ORACLE_HOST"
+          [ -n "$ORACLE_USER" ] || missing="$missing ORACLE_USER"
+          [ -n "$DEPLOY_PATH" ] || missing="$missing DEPLOY_PATH"
+          [ -n "$SSH_KEY_B64" ] || missing="$missing ORACLE_SSH_KEY_B64"
+          if [ -n "$missing" ]; then
+            echo "::error title=Missing secrets::Set these repository secrets:$missing"
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        env:
+          SSH_KEY_B64: ${{ secrets.ORACLE_SSH_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          # The secret is stored base64-encoded (a PEM pasted raw into a secret
+          # loses its newlines and openssh then rejects it as malformed).
+          printf '%s' "$SSH_KEY_B64" | tr -d '[:space:]' | base64 -d > ~/.ssh/oracle_key
+          chmod 600 ~/.ssh/oracle_key
+          ssh-keyscan -H -T 20 "$ORACLE_HOST" >> ~/.ssh/known_hosts 2>/dev/null \
+            || echo "::warning::ssh-keyscan failed; the host key will not be pinned"
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Verify SSH connectivity
+        run: |
+          ssh -i ~/.ssh/oracle_key \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=15 \
+            -o BatchMode=yes \
+            "${ORACLE_USER}@${ORACLE_HOST}" "echo Connected to \$(hostname) as \$(id -un)"
+
+      - name: Copy deploy script to the instance
+        run: |
+          scp -i ~/.ssh/oracle_key \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o StrictHostKeyChecking=accept-new \
+            scripts/deploy/remote-deploy.sh \
+            "${ORACLE_USER}@${ORACLE_HOST}:/tmp/kanban-remote-deploy-${ENVIRONMENT}.sh"
+
+      - name: Fresh pull, full build and restart
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          # ServerAlive* keeps the session open through the long silent stretch of
+          # the node-gyp/vite build; without it the connection can drop mid-build.
+          ssh -i ~/.ssh/oracle_key \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=120 \
+            "${ORACLE_USER}@${ORACLE_HOST}" \
+            "chmod +x /tmp/kanban-remote-deploy-${ENVIRONMENT}.sh && \
+             ENVIRONMENT='${ENVIRONMENT}' \
+             BRANCH='${BRANCH}' \
+             PUBLIC_PORT='${PUBLIC_PORT}' \
+             INTERNAL_PORT='${INTERNAL_PORT}' \
+             DEPLOY_PATH='${DEPLOY_PATH}' \
+             REPO_URL='${REPO_URL}' \
+             bash /tmp/kanban-remote-deploy-${ENVIRONMENT}.sh"
+
+      - name: Verify external reachability
+        id: external
+        run: |
+          set -uo pipefail
+          ok=false
+          for attempt in 1 2 3 4 5; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "http://${ORACLE_HOST}:${PUBLIC_PORT}/" || echo 000)"
+            echo "attempt ${attempt}/5: HTTP ${code}"
+            case "$code" in
+              2??|3??) ok=true; break ;;
+            esac
+            sleep 8
+          done
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+
+          if [ "$ok" != true ]; then
+            # The remote script already proved the app answers on the instance
+            # itself, so reaching this point means the OCI cloud network is the
+            # blocker - which cannot be fixed from inside the instance.
+            echo "::warning title=Not reachable from the internet::The app is healthy on the instance but http://${ORACLE_HOST}:${PUBLIC_PORT} is not reachable. Add an ingress rule for TCP ${PUBLIC_PORT} to the subnet's OCI VCN Security List (or the instance's Network Security Group)."
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          # Not GITHUB_SHA: on a pull_request event that is the ephemeral merge
+          # commit, whereas the checkout (and therefore the deploy) used the
+          # branch head.
+          DEPLOYED_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+          {
+            echo "### Deploy: ${ENVIRONMENT}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Branch | \`${BRANCH}\` |"
+            echo "| Commit | \`${DEPLOYED_SHA}\` |"
+            echo "| Public port | ${PUBLIC_PORT} (proxy, 0.0.0.0) |"
+            echo "| Internal port | ${INTERNAL_PORT} (app, 127.0.0.1) |"
+            echo "| Services | \`kanban-${ENVIRONMENT}\`, \`kanban-${ENVIRONMENT}-proxy\` |"
+            echo ""
+            if [ "${{ steps.external.outputs.ok }}" = "true" ]; then
+              echo "Reachable at http://${ORACLE_HOST}:${PUBLIC_PORT}"
+            else
+              echo "Healthy on the instance, but **not reachable from the internet** on port ${PUBLIC_PORT}."
+              echo ""
+              echo "Add an ingress rule for **TCP ${PUBLIC_PORT}** (source \`0.0.0.0/0\`) to the subnet's"
+              echo "**OCI VCN Security List**, or to the instance's Network Security Group."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

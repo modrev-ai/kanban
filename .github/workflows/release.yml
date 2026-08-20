@@ -1,86 +1,311 @@
 name: Release
 
+# Creates and publishes a GitHub Release every time a pull request is merged.
+#
+# Versioning scheme
+# -----------------
+#   main : vX.Y.Z          Z increments per merged PR. When the next Z would
+#                          reach ROLLOVER_AT, Y increments and Z resets to 0.
+#                          With the default of 50, Z runs 0..49, so v1.0.49 is
+#                          followed by v1.1.0.
+#
+#   dev  : vX.Y.Z.R-dev    X.Y.Z always mirrors the latest main tag.
+#                          R increments while that base is unchanged, and resets
+#                          to 1 as soon as main moves.
+#
+# Fresh repository (no tags): main starts at v1.0.0, dev at v1.0.0.1-dev.
+#
+# Only strictly formatted tags participate. Pre-existing suffixed tags such as
+# v1.0.3-modrev are ignored by both parsers, so they coexist untouched.
+
 on:
   pull_request:
     types: [closed]
-    branches: [main]
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Which versioning scheme to run (a manual run has no pull request to infer it from)"
+        type: choice
+        options: [dev, main]
+        default: dev
+      dry_run:
+        description: "Compute the next version and stop, without tagging or releasing"
+        type: boolean
+        default: true
 
+# Serialized repository-wide rather than per branch: a dev release reads the
+# latest main tag, so a main release running concurrently would move the base out
+# from under it and both runs could compute the same version.
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
-  test:
-    name: Run tests before release
-    uses: ./.github/workflows/test.yml
-
   release:
-    name: Create release on PR merge
-    if: github.event.pull_request.merged == true
-    needs: test
+    name: Tag and release
+    # `types: [closed]` also fires for pull requests closed without merging, so
+    # gate on merged. workflow_dispatch has no pull request context.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ROLLOVER_AT: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # The branch the pull request merged into, so the merge commit is
+          # reachable from this checkout. A manual run checks out the branch
+          # named by the input, which lets a dry run be launched from any ref.
+          ref: ${{ github.event.pull_request.base.ref || inputs.branch || github.ref_name }}
+          # Full history and all tags: the version is derived entirely from tags.
           fetch-depth: 0
           fetch-tags: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install web-ui dependencies
-        run: npm ci --prefix web-ui
-
-      - name: Get package version
-        id: version
+      - name: Fetch all tags
+        # The whole scheme is derived from tags, and actions/checkout does not
+        # reliably bring them down when `ref` is pinned -- verified on a real run,
+        # where the runner saw zero tags and computed the v1.0.0 fallback even
+        # though v0.1.70 exists. Fetch them explicitly rather than trusting it.
         run: |
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          git fetch --force --tags --prune origin
+          echo "tags visible: $(git tag -l | wc -l)"
 
-      - name: Check if tag already exists
-        id: check_tag
+      - name: Resolve target branch and commit
+        id: target
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          if git show-ref --verify --quiet "refs/tags/$TAG"; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          # Precedence: the pull request's base branch, then the manual input,
+          # then the ref the workflow was launched from.
+          BRANCH="${BASE_REF:-${INPUT_BRANCH:-${GITHUB_REF_NAME}}}"
+          case "$BRANCH" in
+            main | dev) ;;
+            *)
+              echo "::error title=Unsupported branch::Release only runs for main and dev, got '${BRANCH}'."
+              exit 1
+              ;;
+          esac
+
+          # On a pull_request event GITHUB_SHA is the ephemeral test-merge commit,
+          # which is not on the branch. Tag the real merge commit instead.
+          SHA="${MERGE_SHA:-$(git rev-parse HEAD)}"
+          if ! git cat-file -e "${SHA}^{commit}" 2>/dev/null; then
+            echo "::error title=Unknown commit::${SHA} is not present in this checkout."
+            exit 1
           fi
 
-      - name: Create and push tag
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${BRANCH} @ ${SHA}"
 
-      - name: Trigger publish workflow
-        if: steps.check_tag.outputs.exists == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'publish.yml',
-              ref: 'main',
-              inputs: {
-                tag: '${{ steps.version.outputs.tag }}'
-              }
-            })
+      - name: Compute next version
+        id: version
+        env:
+          BRANCH: ${{ steps.target.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          # --- tag readers ------------------------------------------------------
+          # Both regexes are anchored at both ends, so suffixed tags
+          # (v1.0.3-modrev, v0.1.70-modrev.1) never leak into either sequence.
+          # Sorting is numeric per field: lexicographic sorting orders v1.0.9
+          # after v1.0.10, which would silently reuse a version.
+
+          latest_main_base() {
+            git tag -l 'v*' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sed 's/^v//' \
+              | sort -t. -k1,1n -k2,2n -k3,3n \
+              | tail -n 1
+          }
+
+          latest_dev_version() {
+            git tag -l 'v*-dev' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-dev$' \
+              | sed -e 's/^v//' -e 's/-dev$//' \
+              | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n \
+              | tail -n 1
+          }
+
+          tag_exists() {
+            git rev-parse -q --verify "refs/tags/$1" >/dev/null 2>&1
+          }
+
+          # Applies the hotfix increment plus the minor rollover to an X.Y.Z base.
+          bump_main() {
+            local base="$1" x y z
+            IFS=. read -r x y z <<< "$base"
+            z=$((z + 1))
+            if [ "$z" -ge "$ROLLOVER_AT" ]; then
+              y=$((y + 1))
+              z=0
+            fi
+            printf '%s.%s.%s' "$x" "$y" "$z"
+          }
+
+          MAIN_BASE="$(latest_main_base || true)"
+          DEV_VERSION="$(latest_dev_version || true)"
+
+          echo "latest main tag : ${MAIN_BASE:-<none>}"
+          echo "latest dev tag  : ${DEV_VERSION:-<none>}"
+
+          if [ "$BRANCH" = "main" ]; then
+            if [ -z "$MAIN_BASE" ]; then
+              NEXT="1.0.0"
+              REASON="first release on main (no existing vX.Y.Z tag)"
+            else
+              NEXT="$(bump_main "$MAIN_BASE")"
+              case "$NEXT" in
+                *.0) REASON="rolled over at ${ROLLOVER_AT}: ${MAIN_BASE} -> ${NEXT}" ;;
+                *) REASON="hotfix increment: ${MAIN_BASE} -> ${NEXT}" ;;
+              esac
+            fi
+            TAG="v${NEXT}"
+            PRERELEASE=false
+
+            # A re-run, or a hand-pushed tag, must not collide. Keep bumping.
+            GUARD=0
+            while tag_exists "$TAG"; do
+              GUARD=$((GUARD + 1))
+              if [ "$GUARD" -gt 100 ]; then
+                echo "::error::No free main tag found after 100 attempts."
+                exit 1
+              fi
+              NEXT="$(bump_main "$NEXT")"
+              TAG="v${NEXT}"
+              REASON="${REASON}; advanced past an existing tag"
+            done
+          else
+            # dev: the base mirrors main, and R only survives while it does.
+            BASE="${MAIN_BASE:-1.0.0}"
+            if [ -z "$DEV_VERSION" ]; then
+              R=1
+              REASON="first dev release on base ${BASE}"
+            else
+              DEV_BASE="${DEV_VERSION%.*}"
+              DEV_R="${DEV_VERSION##*.}"
+              if [ "$DEV_BASE" = "$BASE" ]; then
+                R=$((DEV_R + 1))
+                REASON="base ${BASE} unchanged: R ${DEV_R} -> ${R}"
+              else
+                R=1
+                REASON="main advanced ${DEV_BASE} -> ${BASE}: R reset to 1"
+              fi
+            fi
+            TAG="v${BASE}.${R}-dev"
+            PRERELEASE=true
+
+            GUARD=0
+            while tag_exists "$TAG"; do
+              GUARD=$((GUARD + 1))
+              if [ "$GUARD" -gt 100 ]; then
+                echo "::error::No free dev tag found after 100 attempts."
+                exit 1
+              fi
+              R=$((R + 1))
+              TAG="v${BASE}.${R}-dev"
+              REASON="${REASON}; advanced past an existing tag"
+            done
+          fi
+
+          {
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+            echo "reason=$REASON"
+            echo "previous_main=${MAIN_BASE:-}"
+            echo "previous_dev=${DEV_VERSION:-}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "next tag        : ${TAG}"
+          echo "why             : ${REASON}"
+
+      - name: Create and push tag
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ steps.target.outputs.sha }}
+          BRANCH: ${{ steps.target.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Annotated, so `git describe` and the Releases UI carry the message.
+          git tag -a "$TAG" -m "Release ${TAG} from ${BRANCH}" "$SHA"
+
+          # A lost concurrency race, or a tag pushed by hand, surfaces here rather
+          # than as a silent overwrite. Never force-push a tag.
+          if ! git push origin "refs/tags/${TAG}"; then
+            echo "::error title=Tag push failed::${TAG} could not be pushed; it may already exist on the remote. Re-run this workflow to recompute."
+            exit 1
+          fi
+          echo "Pushed ${TAG} -> ${SHA}"
+
+      - name: Create GitHub release
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run == false }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          BRANCH: ${{ steps.target.outputs.branch }}
+          SHA: ${{ steps.target.outputs.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+
+          NOTES_FILE="$(mktemp)"
+          {
+            if [ -n "${PR_NUMBER:-}" ]; then
+              # PR_TITLE is attacker-controllable text. Passing it through the
+              # environment and printf keeps it out of the workflow expression
+              # layer, where it could break out of the surrounding script.
+              printf 'Merged pull request #%s: %s\n\n' "$PR_NUMBER" "$PR_TITLE"
+            fi
+            printf 'Branch: %s\n' "$BRANCH"
+            printf 'Commit: %s\n' "$SHA"
+          } > "$NOTES_FILE"
+
+          ARGS=(--title "$TAG" --target "$SHA" --notes-file "$NOTES_FILE" --generate-notes)
+          if [ "$PRERELEASE" = "true" ]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh release create "$TAG" "${ARGS[@]}"
+          echo "Created release ${TAG}"
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          REASON: ${{ steps.version.outputs.reason }}
+          BRANCH: ${{ steps.target.outputs.branch }}
+          PREV_MAIN: ${{ steps.version.outputs.previous_main }}
+          PREV_DEV: ${{ steps.version.outputs.previous_dev }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### Release"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Branch | ${BRANCH:-?} |"
+            echo "| New tag | ${TAG:-not computed} |"
+            echo "| Reason | ${REASON:-n/a} |"
+            echo "| Previous main tag | ${PREV_MAIN:-none} |"
+            echo "| Previous dev tag | ${PREV_DEV:-none} |"
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${DRY}" = "true" ]; then
+              echo ""
+              echo "Dry run - nothing was tagged or released."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -13,6 +13,7 @@ If you are new to the codebase, read these in order:
 1. [`../README.md`](../README.md) for the product overview and local setup.
 2. [`architecture.md`](./architecture.md) for the system map, runtime model, and key file guide.
 3. [`modrev-customizations.md`](./modrev-customizations.md) for what the `@modrev-ai/kanban` fork adds on top of upstream Kanban (the Modrev agent, custom models, LLM retry, and release/packaging).
+4. [`deployment.md`](./deployment.md) for the branch deployments to Oracle Compute (`dev` on 4173, `main` on 4174) and why each environment runs a header-rewriting proxy in front of the app.
 
 This `docs/` folder should stand on its own for normal onboarding. Active plans and handoffs may still exist in `.plan/docs`, but a new engineer should not need those to understand the current architecture.
 
