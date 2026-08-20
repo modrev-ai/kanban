@@ -1,5 +1,11 @@
 name: Publish
 
+# DISABLED. npm publishing is turned off, and this workflow is disabled in
+# GitHub Actions (state disabled_manually). It is dispatch-only, so it cannot fire
+# on its own, but it stays disabled so a manual run cannot publish by accident.
+#
+# To restore: `gh workflow enable publish.yml`.
+
 on:
   workflow_dispatch:
     inputs:
