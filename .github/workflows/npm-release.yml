@@ -22,10 +22,22 @@ name: npm release
 # Bumping package.json is still a deliberate, human act; this workflow only
 # reacts to it. Merges that do not change the version are no-ops.
 
+# DISABLED. npm publishing is turned off.
+#
+# Two layers, deliberately:
+#   1. The workflow is disabled in GitHub Actions (state disabled_manually), so
+#      nothing here runs even if a trigger matched.
+#   2. The automatic pull_request trigger is REMOVED below, so simply
+#      re-enabling the workflow does not silently start publishing again on the
+#      next merge to main. Re-enabling is not enough; the trigger has to be put
+#      back deliberately.
+#
+# To restore: re-add the pull_request trigger, and re-enable both this workflow
+# and publish.yml (`gh workflow enable npm-release.yml publish.yml`).
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
+  # pull_request:            <- removed on purpose; see above
+  #   types: [closed]
+  #   branches: [main]
   workflow_dispatch:
 
 concurrency:
