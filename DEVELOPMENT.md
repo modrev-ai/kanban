@@ -48,50 +48,56 @@ Use `http://127.0.0.1:4173` while developing UI so changes hot reload.
 
 Two double-clickable launchers sit at the repo root for local use:
 
-| File | Branch | Starts | URL |
+| File | Runs | Starts | URL |
 | --- | --- | --- | --- |
-| `kanban-dev.cmd` | `dev` | `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
-| `kanban-prod.cmd` | `main` | production build, served from `dist` | http://127.0.0.1:4174 |
+| `kanban-dev.cmd` | latest `dev` release | `tsx watch` runtime + Vite web UI, hot reload | http://127.0.0.1:4173 |
+| `kanban-prod.cmd` | latest `prod` release | production build, served from `dist` | http://127.0.0.1:4174 |
 
 They are thin wrappers over the npm scripts, so nothing is duplicated. Each one
 checks Node is 22+ and leaves the window open on failure so you can read the
 error.
 
-### Building what is on the remote
+### Running the latest release
 
-Each launcher builds a fixed branch -- `dev` for dev, `main` for prod -- and
-builds **what is currently on the GitHub remote**, not whatever your local copy
-happens to be. On start it fetches origin and hard-syncs the local branch to
-`origin/<branch>`, then prints the commit it is building:
+Each launcher runs the newest **release** for its channel, not the branch tip:
+
+| Launcher | Channel | Picks the newest | Falls back to |
+| --- | --- | --- | --- |
+| `kanban-dev.cmd` | dev | `vX.Y.Z.R-dev` tag | `origin/dev` |
+| `kanban-prod.cmd` | prod | `vX.Y.Z` tag | `origin/main` |
+
+Those tags are produced by `.github/workflows/release.yml` on every merged pull
+request, so "latest release" and "what that branch last shipped" are the same
+thing. Until the first release exists on a channel, the launcher says so and
+falls back to the branch tip.
+
+The tag is checked out **detached**, so no local branch is ever moved or reset
+and unpushed commits cannot be lost. The launcher prints how to get back:
 
 ```
-Fetching "dev" from origin...
-Building origin/dev @ 7a2015e
+Running release v1.0.1.10-dev
+(detached HEAD - run "git checkout dev" to go back to developing)
 ```
 
-This is the same thing `scripts/deploy/remote-deploy.sh` does on the server, so a
-local run and a deploy of that branch build the same tree.
+Tag selection is numeric per field, via `scripts/latest-release-tag.mjs`. Both
+lexicographic ordering and `git tag --sort=v:refname` place `v1.0.9` after
+`v1.0.10`, which would silently launch a stale release.
 
-Because the sync resets the branch, two situations are **refused** rather than
-destroyed:
+Uncommitted changes to tracked files are **refused** rather than disturbed by the
+checkout. Untracked files are ignored -- they do not block a checkout, and this
+repo normally carries some.
 
-| Situation | Why it stops |
-| --- | --- |
-| modified tracked files | the reset would discard uncommitted work |
-| local commits not on origin | the reset would drop them |
-
-In both cases it names the problem and suggests committing, stashing, or pushing.
-Untracked files are ignored -- they do not block a checkout, and this repo
-normally carries some (`kanban/`, `keywee/`).
-
-If origin cannot be reached, it warns and continues with the local copy rather
-than failing the launch.
+Dependencies install with `npm ci`, not `npm install`: it installs exactly the
+lockfile the release was cut from and leaves `package-lock.json` untouched.
+`npm install` can rewrite the lockfile, which would dirty the tree and block the
+next launch.
 
 Two escape hatches:
 
-- `--force-sync` -- sync anyway, discarding local changes and unpushed commits.
-- `--no-branch-check` -- skip all of this and build the current checkout, which
-  is what you want when testing a feature branch.
+- `--force-sync` -- check out the release anyway, discarding local changes.
+- `--no-sync` -- skip all of this and run the current checkout, which is what you
+  want when testing a feature branch. (`--no-branch-check` is accepted as an
+  alias.)
 
 ### Freeing the ports
 
