@@ -1,5 +1,11 @@
 # Kanban release workflow
 
+> **npm publishing is disabled.** `npm-release.yml` and `publish.yml` are both
+> disabled in GitHub Actions, and `npm-release.yml`'s automatic trigger has been
+> removed so re-enabling it alone cannot start publishing again. Repository
+> releases (tags and GitHub Releases) are unaffected and still run on every merge.
+> See [npm publishing (disabled)](#npm-publishing-disabled).
+
 ## Overview
 
 This repository uses several GitHub Actions workflows for quality gates, releases,
@@ -16,14 +22,8 @@ publishing, and deployment:
   - Computes the next version **from git tags** and creates a GitHub Release:
     `vX.Y.Z` on main, `vX.Y.Z.R-dev` on dev.
   - Never touches `package.json` or npm.
-- `.github/workflows/npm-release.yml`
-  - Runs when a pull request is merged into `main`.
-  - Publishes **the `package.json` version** via `publish.yml`.
-  - Skips when that version is already on npm, so ordinary merges are no-ops.
-- `.github/workflows/publish.yml`
-  - Manual only via `workflow_dispatch`.
-  - Publishes a tagged release to npm, authenticating with `NPM_TOKEN`.
-  - Creates a GitHub Release using changelog content.
+- `.github/workflows/npm-release.yml` — **disabled**, automatic trigger removed.
+- `.github/workflows/publish.yml` — **disabled**, manual dispatch only.
 - `.github/workflows/deploy-dev.yml` / `deploy-prod.yml` / `deploy-oracle.yml`
   - Deploy the running app to the Oracle Compute instance when a PR is merged
     into `dev` (port 4173) or `main` (port 4174).
@@ -44,6 +44,25 @@ For direct pushes to `main`:
 
 - CI also runs automatically on push.
 
+## npm publishing (disabled)
+
+Nothing publishes to npm. Two independent layers hold that:
+
+1. Both workflows are disabled in GitHub Actions (`disabled_manually`), so nothing
+   runs even if a trigger matched.
+2. `npm-release.yml`'s `pull_request` trigger is removed in the file, so simply
+   re-enabling the workflow does not silently resume publishing on the next merge
+   to `main`. The trigger has to be restored deliberately.
+
+npm currently serves `1.0.1-modrev` on both the `latest` and `modrev` dist-tags,
+and will keep doing so. `package.json` is `1.0.5`, which is now only a repository
+version.
+
+To restore publishing: put the `pull_request` trigger back in `npm-release.yml`,
+then `gh workflow enable npm-release.yml publish.yml`. Re-read
+[Two kinds of release](#two-kinds-of-release) first — the tag namespace is shared
+with `release.yml`.
+
 ## Two kinds of release
 
 These are separate on purpose, and it is worth being clear about which one you
@@ -57,8 +76,8 @@ mean:
 | Trigger | every merged PR to `main` or `dev` | a merged PR to `main` that bumps the version |
 | Publishes to npm | no | yes |
 
-So every merge produces a repository release, and only a version bump produces an
-npm release.
+So every merge produces a repository release. The npm column is **currently
+disabled** and describes what would happen if it were restored.
 
 ### Repository releases (automatic)
 
