@@ -58,7 +58,15 @@ if errorlevel 1 goto :fail
 echo    Runtime : http://127.0.0.1:3484
 echo    Web UI  : http://127.0.0.1:4173     ^<-- open this one
 echo.
-echo    Sources are watched; edits reload automatically.
+if "%DETACHED%"=="1" (
+	rem The launcher runs a RELEASE, so the checkout is detached. Hot reload invites
+	rem editing, and edits committed here would sit on no branch at all.
+	echo    Sources are watched; edits reload automatically - but this is a detached
+	echo    HEAD at !RELEASE_ID!, so anything you commit here is on no branch.
+	echo    Run this with --no-sync to develop on "dev" instead.
+) else (
+	echo    Sources are watched; edits reload automatically.
+)
 echo    Press Ctrl+C to stop.
 echo.
 
@@ -151,6 +159,8 @@ if not defined REL_TAG (
 	)
 	set "HEADSHA="
 	for /f "delims=" %%h in ('git rev-parse --short HEAD 2^>nul') do set "HEADSHA=%%h"
+	set "RELEASE_ID=origin/!WANT!@!HEADSHA!"
+	set "DETACHED=1"
 	echo    Running origin/!WANT! @ !HEADSHA!
 	echo.
 	exit /b 0
@@ -161,6 +171,8 @@ if errorlevel 1 (
 	echo    ERROR: could not check out !REL_TAG!.
 	exit /b 1
 )
+set "RELEASE_ID=!REL_TAG!"
+set "DETACHED=1"
 echo    Running release !REL_TAG!
 echo    ^(detached HEAD - run "git checkout !WANT!" to go back to developing^)
 echo.
@@ -194,28 +206,23 @@ if "!FREED!"=="1" (
 exit /b 0
 
 :sync_deps
-set "PKG_VERSION="
-for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set "PKG_VERSION=%%v"
-if not defined PKG_VERSION (
-	echo    ERROR: could not read the version from package.json.
-	exit /b 1
-)
+call :resolve_release_id
 
 set "DEP_VERSION="
-if exist "node_modules\.kanban-dev-version" set /p DEP_VERSION=<"node_modules\.kanban-dev-version"
+if exist "node_modules\.kanban-release" set /p DEP_VERSION=<"node_modules\.kanban-release"
 
 set "DO_SYNC=0"
 set "REASON="
 if not exist "node_modules\.package-lock.json" ( set "DO_SYNC=1" & set "REASON=dependencies not installed" )
 if "!DO_SYNC!"=="0" if not exist "web-ui\node_modules" ( set "DO_SYNC=1" & set "REASON=web-ui dependencies not installed" )
-if "!DO_SYNC!"=="0" if not "!DEP_VERSION!"=="!PKG_VERSION!" (
+if "!DO_SYNC!"=="0" if not "!DEP_VERSION!"=="!RELEASE_ID!" (
 	set "DO_SYNC=1"
-	set "REASON=version changed: !DEP_VERSION! -> !PKG_VERSION!"
+	set "REASON=release changed: !DEP_VERSION! -^> !RELEASE_ID!"
 )
 if "%FORCE%"=="1" ( set "DO_SYNC=1" & set "REASON=--rebuild requested" )
 
 if "!DO_SYNC!"=="0" (
-	echo    Dependencies are current for version !PKG_VERSION!.
+	echo    Dependencies are current for !RELEASE_ID!.
 	echo.
 	exit /b 0
 )
@@ -230,9 +237,9 @@ call npm ci
 if errorlevel 1 exit /b 1
 call npm ci --prefix web-ui
 if errorlevel 1 exit /b 1
->"node_modules\.kanban-dev-version" echo !PKG_VERSION!
+>"node_modules\.kanban-release" echo !RELEASE_ID!
 echo.
-echo    Dependencies ready ^(version !PKG_VERSION!^).
+echo    Dependencies ready ^(!RELEASE_ID!^).
 echo.
 exit /b 0
 
@@ -242,6 +249,20 @@ echo    Startup failed. The error is above.
 echo.
 pause
 exit /b 1
+
+
+:resolve_release_id
+rem The staleness stamp keys on WHICH RELEASE is checked out, not on the
+rem package.json version. Those are now decoupled: release.yml derives tags from
+rem git (v1.0.4.1-dev) while package.json stays at its npm version (1.0.3-modrev)
+rem across every one of them. Keying on package.json meant the stamp never
+rem changed, so dependencies were never refreshed and - worse - prod never
+rem rebuilt, silently serving a stale dist forever.
+if defined RELEASE_ID exit /b 0
+rem sync was skipped, so fall back to whatever is actually checked out.
+for /f "delims=" %%h in ('git describe --tags --always 2^>nul') do set "RELEASE_ID=%%h"
+if not defined RELEASE_ID set "RELEASE_ID=unknown"
+exit /b 0
 
 :done
 endlocal
