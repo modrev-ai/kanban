@@ -27,6 +27,8 @@ publishing, and deployment:
 - `.github/workflows/deploy-dev.yml` / `deploy-prod.yml` / `deploy-oracle.yml`
   - Deploy the running app to the Oracle Compute instance when a PR is merged
     into `dev` (port 4173) or `main` (port 4174).
+  - **Currently parked** — blocked on the `DEPLOY_PATH` secret and not
+    prioritised. See [docs/deployment.md](docs/deployment.md#resuming-this-work).
   - Separate from npm publishing: deploying does not publish, and publishing does
     not deploy. See [docs/deployment.md](docs/deployment.md).
 

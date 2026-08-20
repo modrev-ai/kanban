@@ -1,5 +1,78 @@
 # Branch deployments (Oracle Compute)
 
+> **Status: parked (backlog).** The pipeline is built and merged, but no
+> deployment has ever completed. It is blocked on one repository secret and has
+> not been prioritised. Nothing below is aspirational — it describes code that
+> exists on `main` — but treat the instance as *not currently serving Kanban*.
+> See [Resuming this work](#resuming-this-work) for the exact next step.
+
+## Resuming this work
+
+### The one blocker
+
+The `DEPLOY_PATH` repository secret contains a **colon**. A colon is the `PATH`
+separator, so every entry derived from the deploy path is split into two garbage
+entries and no project binary resolves — while the files exist, `test -x` passes,
+and absolute-path execution works. That combination cost six deploy attempts,
+presenting first as `husky: command not found` and then `shx: command not found`.
+
+```bash
+gh secret set DEPLOY_PATH --repo modrev-ai/kanban --body "/home/opc/kanban-deploy"
+```
+
+`remote-deploy.sh` now rejects a colon (and whitespace) in about a second, so a
+repeat of that mistake fails legibly instead of after a 30-minute build.
+
+Then re-run either deploy from the Actions tab, or:
+
+```bash
+gh workflow run deploy-dev.yml --repo modrev-ai/kanban --ref dev
+```
+
+### Already proven on the instance
+
+These ran successfully in earlier attempts and should not need rework:
+
+- SSH connectivity and the base64 key handling.
+- Private Node 22 provisioning under `<DEPLOY_PATH>/toolchain/` — the system
+  Node is 20 and is shared with the sibling `cline-kanban-executables` services,
+  so it is deliberately left alone.
+- `npm ci` for both the root and `web-ui`, **including the native `node-pty`
+  node-gyp compile**, which was the biggest open question. Roughly 18-36 minutes.
+- Swap provisioning, the build heap cap, and the OOM guard.
+
+### Never yet executed
+
+Everything past the build is untested on real hardware:
+
+- `npm run build` (the Vite/rollup stage) on a 498 MB instance.
+- Both systemd units, firewalld, and the SELinux port labelling.
+- The health poll and external reachability check.
+
+The failure most worth anticipating is the **SELinux loopback denial**: a 502
+from a proxy whose backend is perfectly healthy, with
+`connect EACCES 127.0.0.1:<internal>` in the journal. See
+[Troubleshooting](#troubleshooting).
+
+### Decisions still open
+
+- [ ] **These ports have no authentication.** See
+      [Security](#security-these-ports-have-no-authentication). Ingress is
+      `0.0.0.0/0`, matching the existing posture for 3484/3485. Narrow the CIDR,
+      front it with the Caddy already on 80/443, or bind the proxy to a Tailscale
+      address before treating this as usable.
+- [ ] **Capacity.** A 498 MB instance hosting Vaultwarden, Caddy, the sibling
+      deployment, and two Kanban environments is oversubscribed. The OOM guard
+      bounds the blast radius; it does not create memory. One environment, or an
+      Always Free `A1.Flex` (4 OCPU / 24 GB), is the real fix.
+- [ ] **Build location.** Each deploy costs ~30-40 minutes, almost entirely
+      install and compile, and every failure so far was an on-box toolchain
+      problem rather than an application one. Building on the runner and shipping
+      the artifact would remove that whole class of failure and cut a deploy to
+      minutes — a different design from the build-on-server one requested, so it
+      is recorded here rather than assumed.
+
+
 Two environments run side by side on a single Oracle Compute instance, each
 built from its own branch and reachable on its own port.
 
