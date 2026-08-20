@@ -3,49 +3,54 @@ setlocal EnableDelayedExpansion
 title Kanban PROD - http://127.0.0.1:4174
 
 rem ---------------------------------------------------------------------------
-rem  Launches a local PRODUCTION instance from the "main" branch: the real
-rem  bundle, served from dist on a single port, 4174.
+rem  Launches a local PRODUCTION instance of the most recent production release:
+rem  the real bundle, served from dist on a single port, 4174.
 rem
 rem  This is not "dev on another port". The built runtime serves the bundled web
 rem  UI itself (see src/server/assets.ts), so there is no Vite and no watcher --
 rem  one process, one URL, the same shape as the deployed server.
 rem
 rem  On start it:
-rem    - checks out and fast-forwards "main" (refuses if you have uncommitted work)
+rem    - fetches origin and checks out the newest vX.Y.Z release tag
+rem      (falling back to origin/main when no release exists yet)
 rem    - frees port 4174 by terminating whatever is listening on it
-rem    - rebuilds only when the package.json version differs from the version that
-rem      produced the current dist, or when dist is missing
+rem    - rebuilds only when the package.json version differs from the version
+rem      that produced the current dist, or when dist is missing
 rem
-rem  Flags: --rebuild / -r        force a rebuild
-rem         --no-branch-check     build from the current branch instead of "main"
+rem  Flags: --rebuild / -r     force a rebuild
+rem         --no-sync          use the current checkout as-is
+rem                            (--no-branch-check is accepted as an alias)
+rem         --force-sync       check out the release even over local changes
 rem
-rem  For hot-reload development from "dev", use kanban-dev.cmd.
+rem  For hot-reload development, use kanban-dev.cmd.
 rem ---------------------------------------------------------------------------
 
 set "TARGET_BRANCH=main"
+set "CHANNEL=prod"
 
 cd /d "%~dp0"
 
 set "FORCE=0"
-set "NO_BRANCH_CHECK=0"
+set "NO_SYNC=0"
 set "FORCE_SYNC=0"
 for %%a in (%*) do (
 	if /i "%%~a"=="--rebuild" set "FORCE=1"
 	if /i "%%~a"=="-r" set "FORCE=1"
-	if /i "%%~a"=="--no-branch-check" set "NO_BRANCH_CHECK=1"
+	if /i "%%~a"=="--no-sync" set "NO_SYNC=1"
+	if /i "%%~a"=="--no-branch-check" set "NO_SYNC=1"
 	if /i "%%~a"=="--force-sync" set "FORCE_SYNC=1"
 )
 
 echo.
 echo  ==================================================
-echo    Kanban  -  PROD instance  (production build)
+echo    Kanban  -  PROD release  (production build)
 echo  ==================================================
 echo.
 
 call :require_node
 if errorlevel 1 goto :fail
 
-call :sync_branch "%TARGET_BRANCH%"
+call :sync_release "%TARGET_BRANCH%" "%CHANNEL%"
 if errorlevel 1 goto :fail
 
 call :free_port 4174 app
@@ -105,7 +110,7 @@ echo.
 echo    URL: http://127.0.0.1:4174
 echo.
 echo    Serving the bundled web UI from dist\web-ui.
-echo    No Vite, no watcher - relaunch after a version bump to pick up changes.
+echo    No Vite, no watcher - relaunch to pick up a newer release.
 echo    Press Ctrl+C to stop.
 echo.
 
@@ -136,53 +141,40 @@ if !NODE_MAJOR! LSS 22 (
 )
 exit /b 0
 
-:sync_branch
-rem Makes the checkout match what is currently on the GitHub remote for this
-rem launcher's branch, so a local run builds exactly what the branch deploys.
-rem
-rem Fetches origin, then hard-syncs the local branch to origin/<branch>. Two
-rem things are deliberately refused rather than destroyed:
-rem   - modified tracked files (uncommitted work)
-rem   - local commits not on origin (they would be discarded by the sync)
-rem Untracked files are ignored: they do not block a checkout, and this repo
-rem normally carries some. --force-sync overrides both refusals.
+:sync_release
+rem Puts the checkout on the newest release for this channel, so a local run is
+rem exactly what was last released rather than whatever the branch tip happens
+rem to be. Checks out the tag detached, so no local branch is ever moved or
+rem reset and unpushed commits cannot be lost.
 set "WANT=%~1"
-if "%NO_BRANCH_CHECK%"=="1" (
-	echo    Branch sync skipped ^(--no-branch-check^); using the current checkout.
+set "CHAN=%~2"
+if "%NO_SYNC%"=="1" (
+	echo    Release sync skipped ^(--no-sync^); using the current checkout.
 	echo.
 	exit /b 0
 )
 where git >nul 2>&1
 if errorlevel 1 (
-	echo    WARNING: git is not on PATH; skipping the branch sync.
+	echo    WARNING: git is not on PATH; skipping the release sync.
 	echo.
 	exit /b 0
 )
 git rev-parse --is-inside-work-tree >nul 2>&1
 if errorlevel 1 (
-	echo    WARNING: not a git checkout; skipping the branch sync.
+	echo    WARNING: not a git checkout; skipping the release sync.
 	echo.
 	exit /b 0
 )
 
-echo    Fetching "!WANT!" from origin...
-git fetch --prune origin "!WANT!"
+echo    Fetching releases from origin...
+git fetch --force --tags --prune origin
 if errorlevel 1 (
-	echo    WARNING: could not reach origin; continuing with the local copy of "!WANT!".
+	echo    WARNING: could not reach origin; using what is already checked out.
 	echo.
-	git rev-parse --verify --quiet "!WANT!" >nul 2>&1
-	if errorlevel 1 exit /b 0
-	git checkout "!WANT!" >nul 2>&1
 	exit /b 0
 )
 
-git rev-parse --verify --quiet "origin/!WANT!" >nul 2>&1
-if errorlevel 1 (
-	echo    ERROR: origin has no branch named "!WANT!".
-	exit /b 1
-)
-
-rem Uncommitted work on tracked files: refuse, never stash or discard.
+rem Uncommitted work on tracked files would be disturbed by the checkout.
 rem -uno, not --untracked-files=no: for /f silently captures nothing from the
 rem long form, so the guard would never fire.
 set "DIRTY="
@@ -190,36 +182,39 @@ for /f "delims=" %%d in ('git status --porcelain -uno 2^>nul') do set "DIRTY=1"
 if defined DIRTY if not "%FORCE_SYNC%"=="1" (
 	echo    ERROR: you have uncommitted changes to tracked files.
 	echo.
-	echo           This launcher builds what is currently on origin/!WANT!, which
-	echo           would discard them. Commit or stash first, or pass --force-sync
-	echo           to discard, or --no-branch-check to build the current checkout.
+	echo           This launcher checks out the latest !CHAN! release, which would
+	echo           disturb them. Commit or stash first, pass --force-sync to
+	echo           discard them, or --no-sync to run the current checkout.
 	exit /b 1
 )
 
-rem Local commits that origin does not have would be dropped by the sync.
-set "AHEAD=0"
-for /f "delims=" %%c in ('git rev-list --count origin/!WANT!..!WANT! 2^>nul') do set "AHEAD=%%c"
-if not "!AHEAD!"=="0" if not "%FORCE_SYNC%"=="1" (
-	echo    ERROR: local "!WANT!" has !AHEAD! commit^(s^) that origin does not.
+set "CO_FLAGS=--detach"
+if "%FORCE_SYNC%"=="1" set "CO_FLAGS=--detach --force"
+
+set "REL_TAG="
+for /f "delims=" %%t in ('node scripts\latest-release-tag.mjs !CHAN! 2^>nul') do set "REL_TAG=%%t"
+
+if not defined REL_TAG (
+	echo    No !CHAN! release tag exists yet - falling back to origin/!WANT!.
+	git checkout !CO_FLAGS! "origin/!WANT!"
+	if errorlevel 1 (
+		echo    ERROR: could not check out origin/!WANT!.
+		exit /b 1
+	)
+	set "HEADSHA="
+	for /f "delims=" %%h in ('git rev-parse --short HEAD 2^>nul') do set "HEADSHA=%%h"
+	echo    Running origin/!WANT! @ !HEADSHA!
 	echo.
-	echo           Syncing to origin/!WANT! would discard them. Push them first, or
-	echo           pass --force-sync to discard, or --no-branch-check to build the
-	echo           current checkout.
-	exit /b 1
+	exit /b 0
 )
 
-set "CUR="
-for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "CUR=%%b"
-if /i not "!CUR!"=="!WANT!" echo    Switching branch: "!CUR!" -^> "!WANT!"
-
-git checkout -B "!WANT!" "origin/!WANT!"
+git checkout !CO_FLAGS! "refs/tags/!REL_TAG!"
 if errorlevel 1 (
-	echo    ERROR: could not sync "!WANT!" to origin/!WANT!.
+	echo    ERROR: could not check out !REL_TAG!.
 	exit /b 1
 )
-set "HEADSHA="
-for /f "delims=" %%h in ('git rev-parse --short HEAD 2^>nul') do set "HEADSHA=%%h"
-echo    Building origin/!WANT! @ !HEADSHA!
+echo    Running release !REL_TAG!
+echo    ^(detached HEAD - run "git checkout !WANT!" to go back to developing^)
 echo.
 exit /b 0
 
@@ -254,9 +249,12 @@ exit /b 0
 if exist "node_modules\.package-lock.json" if exist "web-ui\node_modules" exit /b 0
 echo    Installing dependencies. First run only; this takes a few minutes...
 echo.
-call npm install
+rem npm ci, not npm install: it installs exactly the lockfile the release was
+rem cut from, and leaves package-lock.json untouched. `npm install` can rewrite
+rem the lockfile, which would dirty the tree and block the next release sync.
+call npm ci
 if errorlevel 1 exit /b 1
-call npm --prefix web-ui install
+call npm ci --prefix web-ui
 if errorlevel 1 exit /b 1
 echo.
 echo    Dependencies installed.

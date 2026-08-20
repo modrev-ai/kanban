@@ -10,6 +10,15 @@ This repository uses three GitHub Actions workflows for quality gates and publis
 - `.github/workflows/ci.yml`
   - Runs on pushes and pull requests targeting `main`.
   - Calls the reusable `test.yml` workflow.
+- `.github/workflows/release.yml`
+  - Runs when a pull request is merged into `main` or `dev`.
+  - Computes the next version **from git tags** and creates a GitHub Release:
+    `vX.Y.Z` on main, `vX.Y.Z.R-dev` on dev.
+  - Never touches `package.json` or npm.
+- `.github/workflows/npm-release.yml`
+  - Runs when a pull request is merged into `main`.
+  - Tags **the `package.json` version** and dispatches `publish.yml`.
+  - A merge that does not bump the version is a no-op.
 - `.github/workflows/publish.yml`
   - Manual only via `workflow_dispatch`.
   - Publishes a tagged release to npm using OIDC trusted publishing.

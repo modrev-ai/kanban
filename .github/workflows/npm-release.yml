@@ -1,0 +1,117 @@
+name: npm release
+
+# Publishes the package to npm when a pull request is merged into main.
+#
+# This is the npm half of the release story, deliberately kept separate from
+# release.yml:
+#
+#   release.yml     tags and creates GitHub Releases. Its versions are derived
+#                   from git tags (vX.Y.Z on main, vX.Y.Z.R-dev on dev) and it
+#                   never touches package.json or npm.
+#
+#   npm-release.yml (this file) publishes to npm. Its version is whatever
+#                   package.json says, which stays the source of truth for the
+#                   published artifact.
+#
+# The two therefore produce different tags for the same merge, and that is
+# intentional: `v1.0.4` is a repository release, `v1.0.3-modrev` is an npm
+# release. Bumping package.json is still a deliberate, human act -- this
+# workflow only reacts to it. Merges that do not change the version are no-ops.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: npm-release-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Tag package version and publish to npm
+    # `types: [closed]` also fires for pull requests closed without merging.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Fetch all tags
+        # actions/checkout does not reliably bring tags down when `ref` is
+        # pinned, and the already-published check below depends on seeing them.
+        run: git fetch --force --tags --prune origin
+
+      - name: Read package version
+        id: version
+        run: |
+          set -euo pipefail
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${PACKAGE_VERSION}"
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "already_released=true" >> "$GITHUB_OUTPUT"
+            echo "${TAG} already exists; this merge did not bump the version."
+          else
+            echo "already_released=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.version.outputs.already_released == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # On a pull_request event GITHUB_SHA is the ephemeral test-merge commit,
+          # which is not on the branch. Tag the real merge commit when there is
+          # one; a manual run tags whatever is checked out.
+          TARGET="${SHA:-$(git rev-parse HEAD)}"
+          git tag -a "$TAG" -m "npm release ${TAG}" "$TARGET"
+          git push origin "refs/tags/${TAG}"
+          echo "Pushed ${TAG} -> ${TARGET}"
+
+      - name: Trigger publish workflow
+        if: steps.version.outputs.already_released == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # publish.yml runs the test matrix, verifies the tag matches
+          # package.json, builds, publishes to npm and creates the GitHub
+          # release with the changelog entry. It is dispatched rather than
+          # duplicated so there is one npm publishing path, usable by hand too.
+          gh workflow run publish.yml --ref main --field tag="$TAG"
+          echo "Dispatched publish.yml for ${TAG}"
+
+      - name: Summary
+        if: always()
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          ALREADY: ${{ steps.version.outputs.already_released }}
+        run: |
+          {
+            echo "### npm release"
+            echo ""
+            if [ "${ALREADY}" = "true" ]; then
+              echo "Skipped: \`${TAG}\` is already tagged, so package.json was not bumped by this merge."
+            else
+              echo "Tagged \`${TAG}\` and dispatched \`publish.yml\` to publish it to npm."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
