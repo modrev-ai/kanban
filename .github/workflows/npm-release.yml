@@ -97,17 +97,31 @@ jobs:
           # one; a manual run tags whatever is checked out.
           TARGET="${SHA:-$(git rev-parse HEAD)}"
 
-          # release.yml may already have created this exact tag on this exact
-          # merge commit. Reuse it rather than failing: both workflows tag the
-          # same commit, so package.json at that tag is consistent either way,
-          # which is what publish.yml asserts.
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "${TAG} already exists; reusing it."
+          # release.yml runs concurrently on this same merge and wants this same
+          # tag. Checking the LOCAL ref is not enough and was the actual failure on
+          # v1.0.5: this job fetched tags BEFORE release.yml pushed, saw nothing,
+          # created the tag, and its push was rejected with "already exists" -- which
+          # failed the step and skipped publishing entirely. Nothing reached npm.
+          #
+          # So consult the REMOTE, and treat a losing push as success. Both workflows
+          # tag the same merge commit, so an existing tag is the tag we wanted.
+          if [ -n "$(git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null)" ]; then
+            echo "${TAG} already on origin (release.yml got there first); using it."
           else
-            git tag -a "$TAG" -m "npm release ${TAG}" "$TARGET"
-            git push origin "refs/tags/${TAG}"
-            echo "Pushed ${TAG} -> ${TARGET}"
+            git tag -a "$TAG" -m "npm release ${TAG}" "$TARGET" 2>/dev/null || true
+            if git push origin "refs/tags/${TAG}" 2>/dev/null; then
+              echo "Pushed ${TAG} -> ${TARGET}"
+            else
+              # Lost the race between the check above and this push. That is fine:
+              # verify the tag is really there, then carry on to publish.
+              if [ -z "$(git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null)" ]; then
+                echo "::error title=Tag push failed::${TAG} could not be pushed and is not on origin."
+                exit 1
+              fi
+              echo "${TAG} appeared on origin while we were pushing; using it."
+            fi
           fi
+
 
       - name: Trigger publish workflow
         if: steps.version.outputs.already_released == 'false'
