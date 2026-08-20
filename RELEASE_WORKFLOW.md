@@ -22,7 +22,7 @@ publishing, and deployment:
   - A merge that does not bump the version is a no-op.
 - `.github/workflows/publish.yml`
   - Manual only via `workflow_dispatch`.
-  - Publishes a tagged release to npm using OIDC trusted publishing.
+  - Publishes a tagged release to npm, authenticating with `NPM_TOKEN`.
   - Creates a GitHub Release using changelog content.
 - `.github/workflows/deploy-dev.yml` / `deploy-prod.yml` / `deploy-oracle.yml`
   - Deploy the running app to the Oracle Compute instance when a PR is merged
@@ -102,11 +102,15 @@ Given the input tag, the workflow:
 5. Verifies `tag == v${package.json version}`.
 6. Runs `npm run prepublishOnly`.
    - This runs build + checks before publish.
-7. Publishes with:
+7. Publishes with an explicit dist-tag derived from the prerelease suffix, so a
+   prerelease never lands on `latest`:
 
 ```bash
-npm publish --provenance --access public
+npm publish --access public --tag "<dist-tag>"
 ```
+
+   Authentication uses `NPM_TOKEN` via `NODE_AUTH_TOKEN`. `publishConfig` still
+   requests provenance, which requires `id-token: write`.
 
 8. Extracts the matching version section from `CHANGELOG.md`.
 9. Creates a GitHub Release for the tag with that changelog section as release body.
