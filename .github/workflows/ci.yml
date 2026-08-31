@@ -12,7 +12,18 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Scoped to pull requests, not removed (MRO-376).
+  #
+  # On a PR branch a superseded run really does describe a commit nobody is on,
+  # and cancelling it saves minutes. On a push to a protected branch the opposite
+  # holds: a commit superseded within minutes is usually one somebody is fixing,
+  # which is exactly when its verdict matters most.
+  #
+  # Measured elsewhere in this fleet: financial-cortex 809a41e shipped with a
+  # seeded test mutation still in it, and its CI came back `cancelled` rather
+  # than red because the fix pushed two minutes later. Not red, not green, no
+  # verdict at all - on the one commit that most needed one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
