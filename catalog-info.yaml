@@ -1,0 +1,34 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: kanban
+  description: The modrev-ai fork of Kanban (npx kanban), a local web task board that runs many coding agents in parallel, each card in its own worktree and terminal, published as @modrev-ai/kanban.
+  tags: [typescript, node, react, vite, trpc, electron]
+  annotations:
+    modrev.ai/build: "npm run install:all; npm run build"
+    modrev.ai/run: "npm run dev"
+  links:
+    - url: README.md
+    - url: docs/architecture.md
+    - url: docs/modrev-customizations.md
+    - url: docs/deployment.md
+    - url: DEVELOPMENT.md
+spec:
+  type: tool
+  lifecycle: experimental
+  owner: unassigned
+  features:
+    - Runs from the root of any git repo with npx kanban and opens a local board in the browser
+    - Gives every task card its own ephemeral worktree and terminal, symlinking gitignored files like node_modules
+    - Links cards into dependency chains that auto-start, with auto-commit and auto-PR for autonomous runs
+    - Shows each agent's latest message or tool call on its card through hooks
+    - Reviews a card's diff and checkpoints, with line comments sent back to the agent
+    - Commits or opens a PR from a worktree, and has a git interface for history, branches, fetch, pull and push
+    - Adds the Modrev agent, which runs any OpenAI-compatible model with its own base URL, key and model id
+    - Adds configurable LLM retry, credit-exhaustion handling and a per-task model picker
+  subcomponents:
+    - src/ - the CLI and runtime server (cli.ts, server, trpc, terminal, workspace, cline-sdk, state)
+    - web-ui/ - the React and Vite board
+    - packages/desktop/ - the Electron desktop app
+    - scripts/ - build, dev-full, dogfood and deploy scripts
+    - man/ - the kanban man page
