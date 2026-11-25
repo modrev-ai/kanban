@@ -18,10 +18,9 @@ name: Release
 # Only strictly formatted tags participate. Pre-existing suffixed tags such as
 # v1.0.3-modrev are ignored by both parsers, so they coexist untouched.
 
+# Manual only (25 Nov 2026, Jong: GitHub is code storage first; Actions only for public-site deploys
+# and jobs that must run on GitHub).
 on:
-  pull_request:
-    types: [closed]
-    branches: [main, dev]
   workflow_dispatch:
     inputs:
       branch:
