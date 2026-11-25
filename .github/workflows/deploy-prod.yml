@@ -3,10 +3,9 @@ name: Deploy (prod)
 # Deploys `main` (the production branch) to the Oracle instance on port 4174.
 # Fires when a pull request into `main` is merged.
 
+# Manual only (25 Nov 2026, Jong: GitHub is code storage first; Actions only for public-site deploys
+# and jobs that must run on GitHub).
 on:
-  pull_request:
-    types: [closed]
-    branches: [main]
   workflow_dispatch:
 
 permissions:
