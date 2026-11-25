@@ -3,10 +3,9 @@ name: Deploy (dev)
 # Deploys the `dev` branch to the Oracle instance on port 4173.
 # Fires when a pull request into `dev` is merged.
 
+# Manual only (25 Nov 2026, Jong: GitHub is code storage first; Actions only for public-site deploys
+# and jobs that must run on GitHub).
 on:
-  pull_request:
-    types: [closed]
-    branches: [dev]
   workflow_dispatch:
 
 permissions:
