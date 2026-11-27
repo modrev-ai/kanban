@@ -10,9 +10,12 @@ describe("CLI shim (packaging level)", () => {
 	it("build/bin/kanban exists and is executable", () => {
 		const shimPath = path.join(BUILD_BIN_DIR, "kanban");
 		expect(existsSync(shimPath)).toBe(true);
-		const stat = statSync(shimPath);
-		// Check owner-execute bit (0o100)
-		expect(stat.mode & 0o111).toBeGreaterThan(0);
+		// Windows has no POSIX exec bit (stat reports 0o666 there); the Windows
+		// entry point is kanban.cmd, asserted below. Only check the bit off win32.
+		if (process.platform !== "win32") {
+			const stat = statSync(shimPath);
+			expect(stat.mode & 0o111).toBeGreaterThan(0);
+		}
 	});
 
 	it("build/bin/kanban.cmd exists for Windows", () => {
