@@ -1,4 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// window-factory.ts imports `dialog` from "electron". The real package's
+// index.js throws unless electron.exe was downloaded, and pickRecoveryUrl
+// needs no Electron at all, so the module is replaced with a stub.
+vi.mock("electron", () => ({
+	dialog: { showMessageBoxSync: vi.fn() },
+}));
 
 import { pickRecoveryUrl } from "../src/window-factory.js";
 
